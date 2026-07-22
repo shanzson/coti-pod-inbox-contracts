@@ -257,8 +257,7 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
     }
 
     /// @dev Low-level call that never retains more than {MAX_ERROR_RETURN_DATA} bytes of returndata.
-    ///      On failure, `returnData` is `abi.encode(uint256 fullLength, bytes prefix)` where `fullLength`
-    ///      is `returndatasize()` (may exceed the stored prefix) and `prefix` is the first ≤256 bytes.
+    ///      On failure, `returnData` is the first ≤256 bytes of returndata (POD-02).
     function _callWithCappedReturnData(address target, uint256 gasBudget, bytes memory callData)
         private
         returns (bool success, bytes memory returnData)
@@ -276,11 +275,9 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
         }
 
         uint256 copyLen = fullLength > MAX_ERROR_RETURN_DATA ? MAX_ERROR_RETURN_DATA : fullLength;
-        bytes memory prefix = new bytes(copyLen);
+        returnData = new bytes(copyLen);
         assembly {
-            returndatacopy(add(prefix, 32), 0, copyLen)
+            returndatacopy(add(returnData, 32), 0, copyLen)
         }
-        // fullLength alone is enough metadata; hash(prefix) is redundant while prefix is stored.
-        returnData = abi.encode(fullLength, prefix);
     }
 }

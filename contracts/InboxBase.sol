@@ -219,85 +219,12 @@ contract InboxBase is IInbox, InboxFeeManager {
     }
 
     /// @inheritdoc IInbox
-    /// @dev Execution failures (code 1) store POD-02 capped blobs
-    ///      `abi.encode(uint256 fullLength, bytes prefix)`. Prefers decoded `Error(string)` text
-    ///      (including a truncated message prefix when the cap cuts mid-string). Otherwise returns
-    ///      lowercase hex of the capped prefix (no `0x`) so binary returndata is never UTF-8-corrupted.
-    function getOutboxError(bytes32 requestId) external view returns (uint256 code, string memory message) {
+    /// @dev Returns the stored `errorMessage` bytes as-is. For execution failures (code 1) that is the
+    ///      first ≤{InboxMiner.MAX_ERROR_RETURN_DATA} bytes of returndata (POD-02). Decode in the client.
+    function getOutboxError(bytes32 requestId) external view returns (uint256 code, bytes memory data) {
         Error memory err = errors[requestId];
         require(err.requestId != bytes32(0), "Inbox: error not found");
-        code = err.errorCode;
-        if (code != ERROR_CODE_EXECUTION_FAILED) {
-            return (code, string(err.errorMessage));
-        }
-        bytes memory raw = err.errorMessage;
-        // abi.encode(uint256, bytes) is at least 64 bytes of head + dynamic payload.
-        if (raw.length >= 64) {
-            (, bytes memory prefix) = abi.decode(raw, (uint256, bytes));
-            string memory reason = _tryDecodeErrorString(prefix);
-            if (bytes(reason).length != 0) {
-                return (code, reason);
-            }
-            return (code, _bytesToHex(prefix));
-        }
-        return (code, _bytesToHex(raw));
-    }
-
-    /// @dev Lowercase hex of `data` (no `0x` prefix) — uncorrupted ASCII for binary returndata.
-    function _bytesToHex(bytes memory data) private pure returns (string memory out) {
-        uint256 len = data.length;
-        out = new string(len << 1);
-        assembly {
-            let alphabet := 0x3031323334353637383961626364656600000000000000000000000000000000
-            let src := add(data, 32)
-            let dst := add(out, 32)
-            for { let i := 0 } lt(i, len) { i := add(i, 1) } {
-                let b := byte(0, mload(add(src, i)))
-                mstore8(add(dst, shl(1, i)), byte(shr(4, b), alphabet))
-                mstore8(add(dst, add(shl(1, i), 1)), byte(and(b, 0xf), alphabet))
-            }
-        }
-    }
-
-    /// @dev Extract `Error(string)` text when present. If the string was truncated by the returndata
-    ///      cap, return the available prefix of the message (still readable / not corrupted).
-    function _tryDecodeErrorString(bytes memory prefix) private pure returns (string memory) {
-        if (prefix.length < 68) {
-            return "";
-        }
-        bytes4 selector;
-        assembly {
-            selector := mload(add(prefix, 32))
-        }
-        if (selector != bytes4(0x08c379a0)) {
-            return "";
-        }
-        uint256 offset;
-        uint256 strLen;
-        assembly {
-            offset := mload(add(prefix, 36))
-            strLen := mload(add(prefix, 68))
-        }
-        if (offset != 32) {
-            return "";
-        }
-        // Data starts at byte 68 (selector 4 + offset word 32 + length word 32).
-        if (prefix.length <= 68) {
-            return "";
-        }
-        uint256 available = prefix.length - 68;
-        uint256 copyLen = strLen < available ? strLen : available;
-        if (copyLen == 0) {
-            return "";
-        }
-        bytes memory text = new bytes(copyLen);
-        for (uint256 i = 0; i < copyLen; ) {
-            text[i] = prefix[68 + i];
-            unchecked {
-                ++i;
-            }
-        }
-        return string(text);
+        return (err.errorCode, err.errorMessage);
     }
 
     /// @inheritdoc IInbox

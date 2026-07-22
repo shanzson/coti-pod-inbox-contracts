@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
 import {
-  decodeAbiParameters,
+  decodeErrorResult,
   encodeFunctionData,
   toHex,
   type Hex,
@@ -94,7 +94,7 @@ const mineFailing = async (h: Harness, calldata: Hex, targetFee = 5_000_000n): P
           errorSelector: "0x00000000",
           isTwoWay: false,
           sourceRequestId: toHex(0n, { size: 32 }),
-          targetFee,
+          targetFee: targetFee,
           callerFee: 0n,
         },
       ],
@@ -109,7 +109,8 @@ const mineFailing = async (h: Harness, calldata: Hex, targetFee = 5_000_000n): P
   return requestId;
 };
 
-const readStored = async (h: Harness, requestId: `0x${string}`) => {
+/** Stored errorMessage must equal getOutboxError data (raw capped returndata). */
+const readErrorBytes = async (h: Harness, requestId: `0x${string}`) => {
   const errTuple = (await h.inbox.read.errors([requestId])) as readonly [
     `0x${string}`,
     bigint,
@@ -117,25 +118,32 @@ const readStored = async (h: Harness, requestId: `0x${string}`) => {
   ];
   const [, errorCode, errorMessage] = errTuple;
   assert.equal(errorCode, 1n, "expected ERROR_CODE_EXECUTION_FAILED");
-  const [fullLength, prefix] = decodeAbiParameters(
-    [{ type: "uint256" }, { type: "bytes" }],
-    errorMessage
-  ) as [bigint, `0x${string}`];
-  return { fullLength, prefix, errorMessage };
-};
 
-const readOutbox = async (h: Harness, requestId: `0x${string}`) => {
-  const [code, message] = (await h.inbox.read.getOutboxError([requestId])) as readonly [
+  const [code, data] = (await h.inbox.read.getOutboxError([requestId])) as readonly [
     bigint,
-    string,
+    `0x${string}`,
   ];
   assert.equal(code, 1n);
-  return message;
+  assert.equal(data.toLowerCase(), errorMessage.toLowerCase());
+  return data;
 };
 
-const prefixHex = (prefix: `0x${string}`) => prefix.slice(2).toLowerCase();
+const byteLen = (hex: `0x${string}`) => (hex.length - 2) / 2;
 
-describe("Inbox POD-02 capped returndata + getOutboxError readability", {
+/** Best-effort Error(string) decode for client-side readability checks. */
+const tryDecodeErrorString = (data: `0x${string}`): string | undefined => {
+  try {
+    const decoded = decodeErrorResult({
+      abi: [{ type: "error", name: "Error", inputs: [{ name: "message", type: "string" }] }],
+      data,
+    });
+    return decoded.args[0] as string;
+  } catch {
+    return undefined;
+  }
+};
+
+describe("Inbox POD-02 capped returndata (raw bytes)", {
   concurrency: false,
   timeout: 600_000,
 }, () => {
@@ -145,7 +153,7 @@ describe("Inbox POD-02 capped returndata + getOutboxError readability", {
     h = await deployHarness();
   });
 
-  it("short Error(string) is fully readable via getOutboxError", async () => {
+  it("short Error(string) is stored intact; JS can decode the reason", async () => {
     const reason = "insufficient balance";
     const calldata = encodeFunctionData({
       abi: h.target.abi,
@@ -153,16 +161,12 @@ describe("Inbox POD-02 capped returndata + getOutboxError readability", {
       args: [reason],
     });
     const rid = await mineFailing(h, calldata);
-    const { fullLength, prefix } = await readStored(h, rid);
-    assert.ok(fullLength <= MAX_ERROR_RETURN_DATA);
-    assert.equal(BigInt((prefix.length - 2) / 2), fullLength);
-
-    const message = await readOutbox(h, rid);
-    assert.equal(message, reason);
+    const data = await readErrorBytes(h, rid);
+    assert.ok(byteLen(data) <= Number(MAX_ERROR_RETURN_DATA));
+    assert.equal(tryDecodeErrorString(data), reason);
   });
 
-  it("Error(string) that fits under the cap is fully readable", async () => {
-    // ABI Error(string) = 68 + ceil(n/32)*32. Body 160 → 68+160 = 228 ≤ 256.
+  it("Error(string) under the cap is fully decodable in JS", async () => {
     const bodyLen = 160;
     const calldata = encodeFunctionData({
       abi: h.target.abi,
@@ -170,16 +174,12 @@ describe("Inbox POD-02 capped returndata + getOutboxError readability", {
       args: ["0x41", BigInt(bodyLen)],
     });
     const rid = await mineFailing(h, calldata);
-    const { fullLength, prefix } = await readStored(h, rid);
-    assert.ok(fullLength <= MAX_ERROR_RETURN_DATA);
-    assert.equal(fullLength, 228n);
-    assert.equal(BigInt((prefix.length - 2) / 2), fullLength);
-
-    const message = await readOutbox(h, rid);
-    assert.equal(message, "A".repeat(bodyLen));
+    const data = await readErrorBytes(h, rid);
+    assert.ok(byteLen(data) <= Number(MAX_ERROR_RETURN_DATA));
+    assert.equal(tryDecodeErrorString(data), "A".repeat(bodyLen));
   });
 
-  it("oversized Error(string) keeps a readable truncated message prefix (not corrupted)", async () => {
+  it("oversized Error(string) is capped at 256 bytes; prefix is uncorrupted", async () => {
     const bodyLen = 500;
     const calldata = encodeFunctionData({
       abi: h.target.abi,
@@ -187,51 +187,41 @@ describe("Inbox POD-02 capped returndata + getOutboxError readability", {
       args: ["0x42", BigInt(bodyLen)],
     });
     const rid = await mineFailing(h, calldata);
-    const { fullLength, prefix } = await readStored(h, rid);
-    assert.ok(fullLength > MAX_ERROR_RETURN_DATA, `fullLength=${fullLength}`);
-    assert.equal(BigInt((prefix.length - 2) / 2), MAX_ERROR_RETURN_DATA);
-
-    const message = await readOutbox(h, rid);
-    assert.ok(message.length > 0, "expected truncated readable prefix");
-    assert.ok(message.length < bodyLen, "must be truncated vs original");
-    assert.match(message, /^B+$/, `corrupted message: ${JSON.stringify(message)}`);
-    // Available body bytes in a 256-byte prefix after Error(string) header (68).
-    assert.equal(message.length, 188);
-    assert.equal(message, "B".repeat(188));
+    const data = await readErrorBytes(h, rid);
+    assert.equal(byteLen(data), Number(MAX_ERROR_RETURN_DATA));
+    // Truncated mid-ABI — full decode fails; selector + header still intact.
+    assert.equal(data.slice(0, 10).toLowerCase(), "0x08c379a0");
+    assert.equal(undefined, tryDecodeErrorString(data));
+    // Body bytes after Error(string) header (68) start as ASCII 'B' (may end with ABI pad zeros).
+    const bodyHex = data.slice(2 + 68 * 2).toLowerCase();
+    assert.ok(bodyHex.startsWith("42".repeat(32)), `body prefix corrupted: ${bodyHex.slice(0, 64)}`);
+    assert.ok(/^(?:42)+0*$/.test(bodyHex), `unexpected body bytes: ${bodyHex.slice(-16)}`);
   });
 
-  it("empty revert stores empty prefix; getOutboxError returns empty string", async () => {
+  it("empty revert stores empty bytes", async () => {
     const calldata = encodeFunctionData({
       abi: h.target.abi,
       functionName: "boomEmpty",
       args: [],
     });
     const rid = await mineFailing(h, calldata);
-    const { fullLength, prefix } = await readStored(h, rid);
-    assert.equal(fullLength, 0n);
-    assert.equal(prefix, "0x");
-    const message = await readOutbox(h, rid);
-    assert.equal(message, "");
+    const data = await readErrorBytes(h, rid);
+    assert.equal(data, "0x");
   });
 
-  it("Panic returndata is hex-encoded uncorrupted via getOutboxError", async () => {
+  it("Panic returndata is preserved uncorrupted", async () => {
     const calldata = encodeFunctionData({
       abi: h.target.abi,
       functionName: "boomPanic",
       args: [],
     });
     const rid = await mineFailing(h, calldata, 2_000_000n);
-    const { fullLength, prefix } = await readStored(h, rid);
-    assert.ok(fullLength > 0n);
-    assert.equal(BigInt((prefix.length - 2) / 2), fullLength);
-    // Panic(uint256) selector 0x4e487b71
-    assert.ok(prefixHex(prefix).startsWith("4e487b71"), `prefix=${prefix}`);
-
-    const message = await readOutbox(h, rid);
-    assert.equal(message.toLowerCase(), prefixHex(prefix));
+    const data = await readErrorBytes(h, rid);
+    assert.ok(byteLen(data) > 0);
+    assert.ok(data.toLowerCase().startsWith("0x4e487b71"), `data=${data}`);
   });
 
-  it("custom error is hex-encoded; hint text still identifiable in hex", async () => {
+  it("custom error bytes are preserved; hint identifiable in hex", async () => {
     const hint = "FactoryNotAllowed";
     const calldata = encodeFunctionData({
       abi: h.target.abi,
@@ -239,55 +229,36 @@ describe("Inbox POD-02 capped returndata + getOutboxError readability", {
       args: [42n, hint],
     });
     const rid = await mineFailing(h, calldata);
-    const { fullLength, prefix } = await readStored(h, rid);
-    assert.ok(fullLength <= MAX_ERROR_RETURN_DATA);
-    assert.equal(BigInt((prefix.length - 2) / 2), fullLength);
-
-    const message = await readOutbox(h, rid);
-    assert.equal(message.toLowerCase(), prefixHex(prefix));
-    const hintHex = Buffer.from(hint, "utf8").toString("hex");
-    assert.ok(message.toLowerCase().includes(hintHex), `hint hex missing from ${message}`);
+    const data = await readErrorBytes(h, rid);
+    assert.ok(byteLen(data) <= Number(MAX_ERROR_RETURN_DATA));
+    assert.ok(data.toLowerCase().includes(Buffer.from(hint, "utf8").toString("hex")));
   });
 
-  it("exact 256-byte raw revert is stored in full; getOutboxError hex matches prefix", async () => {
+  it("exact 256-byte raw revert is stored in full", async () => {
     const calldata = encodeFunctionData({
       abi: h.target.abi,
       functionName: "boom",
       args: [MAX_ERROR_RETURN_DATA],
     });
     const rid = await mineFailing(h, calldata);
-    const { fullLength, prefix } = await readStored(h, rid);
-    assert.equal(fullLength, MAX_ERROR_RETURN_DATA);
-    assert.equal(BigInt((prefix.length - 2) / 2), MAX_ERROR_RETURN_DATA);
-    assert.equal(prefixHex(prefix), "00".repeat(Number(MAX_ERROR_RETURN_DATA)));
-
-    const message = await readOutbox(h, rid);
-    assert.equal(message.toLowerCase(), prefixHex(prefix));
-    assert.equal(message.length, Number(MAX_ERROR_RETURN_DATA) * 2);
+    const data = await readErrorBytes(h, rid);
+    assert.equal(byteLen(data), Number(MAX_ERROR_RETURN_DATA));
+    assert.equal(data.toLowerCase(), `0x${"00".repeat(Number(MAX_ERROR_RETURN_DATA))}`);
   });
 
-  it("huge raw revert is capped at 256; fullLength preserved; hex is uncorrupted zeros", async () => {
+  it("huge raw revert is capped at 256 zero bytes", async () => {
     const calldata = encodeFunctionData({
       abi: h.target.abi,
       functionName: "boom",
       args: [LARGE_REVERT_SIZE],
     });
     const rid = await mineFailing(h, calldata);
-    const { fullLength, prefix, errorMessage } = await readStored(h, rid);
-    assert.equal(fullLength, LARGE_REVERT_SIZE);
-    assert.equal(BigInt((prefix.length - 2) / 2), MAX_ERROR_RETURN_DATA);
-    assert.ok(
-      (errorMessage.length - 2) / 2 < 600,
-      `stored error too large: ${(errorMessage.length - 2) / 2}`
-    );
-    assert.equal(prefixHex(prefix), "00".repeat(Number(MAX_ERROR_RETURN_DATA)));
-
-    const message = await readOutbox(h, rid);
-    assert.equal(message.toLowerCase(), prefixHex(prefix));
-    assert.notEqual(message.toLowerCase(), errorMessage.slice(2).toLowerCase());
+    const data = await readErrorBytes(h, rid);
+    assert.equal(byteLen(data), Number(MAX_ERROR_RETURN_DATA));
+    assert.equal(data.toLowerCase(), `0x${"00".repeat(Number(MAX_ERROR_RETURN_DATA))}`);
   });
 
-  it("tiny raw revert (1–16 bytes) is stored in full without padding corruption", async () => {
+  it("tiny raw revert (1–16 bytes) is stored without padding", async () => {
     for (const size of [1n, 4n, 16n]) {
       const calldata = encodeFunctionData({
         abi: h.target.abi,
@@ -295,13 +266,9 @@ describe("Inbox POD-02 capped returndata + getOutboxError readability", {
         args: [size],
       });
       const rid = await mineFailing(h, calldata);
-      const { fullLength, prefix } = await readStored(h, rid);
-      assert.equal(fullLength, size);
-      assert.equal(BigInt((prefix.length - 2) / 2), size);
-      assert.equal(prefixHex(prefix), "00".repeat(Number(size)));
-
-      const message = await readOutbox(h, rid);
-      assert.equal(message.toLowerCase(), prefixHex(prefix));
+      const data = await readErrorBytes(h, rid);
+      assert.equal(byteLen(data), Number(size));
+      assert.equal(data.toLowerCase(), `0x${"00".repeat(Number(size))}`);
     }
   });
 
@@ -363,9 +330,7 @@ describe("Inbox POD-02 capped returndata + getOutboxError readability", {
     const lastId = (await h.inbox.read.lastIncomingRequestId([SOURCE_CHAIN_ID])) as `0x${string}`;
     assert.equal(lastId.toLowerCase(), ridOk.toLowerCase());
 
-    const { fullLength, prefix } = await readStored(h, ridFail);
-    assert.equal(fullLength, LARGE_REVERT_SIZE);
-    assert.equal(BigInt((prefix.length - 2) / 2), MAX_ERROR_RETURN_DATA);
-    assert.equal((await readOutbox(h, ridFail)).toLowerCase(), prefixHex(prefix));
+    const data = await readErrorBytes(h, ridFail);
+    assert.equal(byteLen(data), Number(MAX_ERROR_RETURN_DATA));
   });
 });
