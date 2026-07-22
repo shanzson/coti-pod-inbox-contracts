@@ -196,7 +196,17 @@ export const chainlinkFeedsForChain = (chainId: number): ChainlinkFeedConfig => 
   const mainnetStaleness = 3_600n;
   const fetchInterval = 300n;
 
-  if (chainId === 11155111 || chainId === 31337) {
+  if (chainId === 31337) {
+    // Local Hardhat has no Sepolia Chainlink bytecode — both legs must be manual.
+    return {
+      localFeed: zeroAddress,
+      remoteFeed: zeroAddress,
+      manualLeg: "both",
+      maxStalenessSeconds: testnetStaleness,
+      fetchIntervalSeconds: fetchInterval,
+    };
+  }
+  if (chainId === 11155111) {
     return {
       localFeed: CHAINLINK_FEEDS.sepoliaEthUsd,
       remoteFeed: zeroAddress,
@@ -436,6 +446,10 @@ type ChainlinkOracleContract = {
   address: `0x${string}`;
   read: { getPricesUSD: () => Promise<readonly [bigint, bigint]> };
   write: {
+    setInboxTokens: (
+      args: [`0x${string}`, `0x${string}`],
+      options?: { account: `0x${string}`; gas?: bigint }
+    ) => Promise<`0x${string}`>;
     setLocalTokenPriceUSD: (args: [bigint], options?: { account: `0x${string}`; gas?: bigint }) => Promise<`0x${string}`>;
     setRemoteTokenPriceUSD: (args: [bigint], options?: { account: `0x${string}`; gas?: bigint }) => Promise<`0x${string}`>;
     refreshCache: (args: [], options?: { account: `0x${string}` }) => Promise<`0x${string}`>;
@@ -464,10 +478,12 @@ export const deployChainlinkPriceOracle = async (params: DeployOracleParams): Pr
     { client: { public: publicClient, wallet: walletClient }, account: deployer }
   );
   if (feeds.localFeed !== zeroAddress) {
-    await liveAdapter.write.setFeed([localToken, feeds.localFeed], writeOpts);
+    const h = await liveAdapter.write.setFeed([localToken, feeds.localFeed], writeOpts);
+    await waitMined(publicClient, h);
   }
   if (feeds.remoteFeed !== zeroAddress) {
-    await liveAdapter.write.setFeed([remoteToken, feeds.remoteFeed], writeOpts);
+    const h = await liveAdapter.write.setFeed([remoteToken, feeds.remoteFeed], writeOpts);
+    await waitMined(publicClient, h);
   }
 
   const oracle = (await viem.deployContract(
@@ -476,7 +492,10 @@ export const deployChainlinkPriceOracle = async (params: DeployOracleParams): Pr
     { client: { public: publicClient, wallet: walletClient }, account: deployer }
   )) as ChainlinkOracleContract;
 
-  await oracle.write.setInboxTokens([localToken, remoteToken], writeOpts);
+  {
+    const h = await oracle.write.setInboxTokens([localToken, remoteToken], writeOpts);
+    await waitMined(publicClient, h);
+  }
 
   if (feeds.manualLeg === "local" || feeds.manualLeg === "both") {
     const h = await oracle.write.setLocalTokenPriceUSD([localUsd18], writeOpts);

@@ -52,10 +52,7 @@ const methodCallHash = (methodCall: {
 
 describe("Inbox compact message events", { concurrency: false, timeout: 600_000 }, () => {
   it("MessageSent logs compact metadata while storage keeps full methodCall", async () => {
-    const { viem } = await network.connect({
-      network: "hardhat",
-      override: { allowUnlimitedContractSize: true },
-    });
+    const { viem } = await network.connect({ network: "hardhat" });
     const publicClient = await viem.getPublicClient();
     const [wallet] = await viem.getWalletClients();
     const deployer = wallet.account.address as `0x${string}`;
@@ -110,10 +107,7 @@ describe("Inbox compact message events", { concurrency: false, timeout: 600_000 
   });
 
   it("MessageReceived logs compact metadata while incoming storage keeps full methodCall", async () => {
-    const { viem } = await network.connect({
-      network: "hardhat",
-      override: { allowUnlimitedContractSize: true },
-    });
+    const { viem } = await network.connect({ network: "hardhat" });
     const publicClient = await viem.getPublicClient();
     const [wallet] = await viem.getWalletClients();
     const deployer = wallet.account.address as `0x${string}`;

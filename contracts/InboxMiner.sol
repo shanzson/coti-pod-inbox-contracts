@@ -104,8 +104,6 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
 
             _executeIncomingRequest(incomingRequest, sourceChainId);
 
-            // POD-09: mark original outbound as executed when the return leg is received, even if the
-            // callback reverted (retryable via errors[]). Consumers must not treat this as "callback committed."
             if (incomingRequest.requestId != bytes32(0) && incomingRequest.sourceRequestId != bytes32(0)
                 && !incomingRequest.isTwoWay) {
                 bytes32 originalRequestId = incomingRequest.sourceRequestId;
@@ -259,8 +257,8 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
     }
 
     /// @dev Low-level call that never retains more than {MAX_ERROR_RETURN_DATA} bytes of returndata.
-    ///      On failure, `returnData` is `abi.encode(bytes32 prefixHash, uint256 fullLength, bytes prefix)`
-    ///      where `prefixHash = keccak256(prefix)` and `fullLength` is `returndatasize()` (may exceed the prefix).
+    ///      On failure, `returnData` is `abi.encode(uint256 fullLength, bytes prefix)` where `fullLength`
+    ///      is `returndatasize()` (may exceed the stored prefix) and `prefix` is the first ≤256 bytes.
     function _callWithCappedReturnData(address target, uint256 gasBudget, bytes memory callData)
         private
         returns (bool success, bytes memory returnData)
@@ -282,6 +280,7 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
         assembly {
             returndatacopy(add(prefix, 32), 0, copyLen)
         }
-        returnData = abi.encode(keccak256(prefix), fullLength, prefix);
+        // fullLength alone is enough metadata; hash(prefix) is redundant while prefix is stored.
+        returnData = abi.encode(fullLength, prefix);
     }
 }

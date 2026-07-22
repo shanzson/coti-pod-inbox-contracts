@@ -34,10 +34,7 @@ const packRequestId = (source: bigint, target: bigint, nonce: bigint): `0x${stri
 
 describe("Inbox POD-04 retry encode failure", { concurrency: false, timeout: 600_000 }, () => {
   it("retry encode failure reverts and preserves ERROR_CODE_EXECUTION_FAILED", async () => {
-    const { viem, provider } = await network.connect({
-      network: "hardhat",
-      override: { allowUnlimitedContractSize: true },
-    });
+    const { viem, provider } = await network.connect({ network: "hardhat" });
     const publicClient = await viem.getPublicClient();
     const [wallet] = await viem.getWalletClients();
     const deployer = wallet.account.address as `0x${string}`;

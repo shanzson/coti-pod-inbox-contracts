@@ -7,6 +7,8 @@ import "../PriceOracle.sol";
 
 /// @notice Minimal Uniswap V2 pair surface for reserve-based spot pricing.
 interface IUniswapV2Pair {
+    function token0() external view returns (address);
+    function token1() external view returns (address);
     function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
 }
 
@@ -45,6 +47,15 @@ contract UniswapPriceOracle is PriceOracle {
         localTokenIsToken0 = _localTokenIsToken0;
         remoteTokenIsToken0 = _remoteTokenIsToken0;
         fetchInterval = _fetchIntervalSeconds;
+        // Wire inbox legs from the pairs so {refreshCache} can populate prices without a separate
+        // {setInboxTokens} call (owner may still re-point legs later via {setInboxTokens}).
+        address local_ = _localTokenIsToken0 ? _localPair.token0() : _localPair.token1();
+        address remote_ = _remoteTokenIsToken0 ? _remotePair.token0() : _remotePair.token1();
+        if (local_ == address(0) || remote_ == address(0)) {
+            revert ZeroToken();
+        }
+        localToken = local_;
+        remoteToken = remote_;
     }
 
     /// @dev Overrides parent to read spot price from V2 pairs for inbox leg tokens.

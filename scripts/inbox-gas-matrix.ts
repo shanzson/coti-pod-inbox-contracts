@@ -27,10 +27,7 @@ const rawMethodCall = (data: `0x${string}`) => ({
 });
 
 const main = async () => {
-  const { viem } = await network.connect({
-    network: "hardhat",
-    override: { allowUnlimitedContractSize: true },
-  });
+  const { viem } = await network.connect({ network: "hardhat" });
   const publicClient = await viem.getPublicClient();
   const [wallet] = await viem.getWalletClients();
   const deployer = wallet.account.address as `0x${string}`;

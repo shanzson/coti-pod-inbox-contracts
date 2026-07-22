@@ -26,10 +26,7 @@ const minimalMethodCall = () => ({
 
 describe("Inbox one-way errorSelector", { concurrency: false, timeout: 600_000 }, () => {
   it("rejects non-zero errorSelector on sendOneWayMessage", async () => {
-    const { viem } = await network.connect({
-      network: "hardhat",
-      override: { allowUnlimitedContractSize: true },
-    });
+    const { viem } = await network.connect({ network: "hardhat" });
     const publicClient = await viem.getPublicClient();
     const [wallet] = await viem.getWalletClients();
     const deployer = wallet.account.address as `0x${string}`;

@@ -29,10 +29,7 @@ const ERROR_CODE_ENCODE_FAILED = 2n;
 
 describe("Inbox system-error callback", { concurrency: false, timeout: 600_000 }, () => {
   it("encode failure emits ErrorReceived + SystemErrorRaised and refuses retry", async () => {
-    const { viem } = await network.connect({
-      network: "hardhat",
-      override: { allowUnlimitedContractSize: true },
-    });
+    const { viem } = await network.connect({ network: "hardhat" });
     const publicClient = await viem.getPublicClient();
     const [wallet] = await viem.getWalletClients();
     const deployer = wallet.account.address as `0x${string}`;
