@@ -60,6 +60,21 @@ describe("PoDPriceOracle", { concurrency: 1 }, async () => {
     assert.equal(col, SCALE);
   });
 
+  it("clearTokenPriceUSD removes manual peg so live adapter resumes", async () => {
+    const { oracle } = await deploy("band");
+    await oracle.write.setTokenPriceUSD([localToken, SCALE], { account: owner });
+    assert.equal(await oracle.read.getLivePrice([localToken]), SCALE);
+
+    await assert.rejects(
+      () => oracle.write.setTokenPriceUSD([localToken, 0n], { account: owner }),
+      /ZeroUsdPrice|reverted/
+    );
+
+    await oracle.write.clearTokenPriceUSD([localToken], { account: owner });
+    assert.equal(await oracle.read.manualPrices([localToken]), 0n);
+    assert.equal(await oracle.read.getLivePrice([localToken]), BAND_ETH);
+  });
+
   it("refreshCache respects staleness and fetch interval", async () => {
     const feed = await viem.deployContract("MockChainlinkAggregator", [8, ETH_8], { client: c });
     const ad = await viem.deployContract("ChainlinkLiveOracle", [owner, 60n], { client: c });

@@ -81,7 +81,7 @@ contract PoDPriceOracle is PriceOracle, IPodPriceOracle {
         return configuredOracle.getLivePrices(nativeToken, collateralToken);
     }
 
-    /// @notice Set manual USD peg for `token` (e.g. USDC $1).
+    /// @notice Set manual USD peg for `token` (e.g. USDC $1). Use {clearTokenPriceUSD} to remove.
     function setTokenPriceUSD(address token, uint256 priceUsd) external onlyPriceAdmin {
         if (token == address(0)) {
             revert ZeroToken();
@@ -91,6 +91,15 @@ contract PoDPriceOracle is PriceOracle, IPodPriceOracle {
         }
         manualPrices[token] = priceUsd;
         emit ManualPriceUpdated(token, priceUsd);
+    }
+
+    /// @notice Clear the manual USD peg for `token` so live/adapter pricing resumes.
+    function clearTokenPriceUSD(address token) external onlyPriceAdmin {
+        if (token == address(0)) {
+            revert ZeroToken();
+        }
+        delete manualPrices[token];
+        emit ManualPriceUpdated(token, 0);
     }
 
     /// @inheritdoc PriceOracle
