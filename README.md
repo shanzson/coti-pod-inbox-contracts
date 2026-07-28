@@ -27,7 +27,18 @@ npm run sync:interfaces -- ../coti-contracts
 TARGET=../coti-contracts ./scripts/sync-inbox-interfaces.sh
 ```
 
-Synced files land in `coti-contracts/contracts/pod/inbox/` with `SYNC_MANIFEST.json` (commit + hashes).
+Synced files land under `coti-contracts/contracts/pod/` (consumer import path — not `pod/inbox/`):
+
+| Source (this repo) | Destination (`coti-contracts`) |
+|--------------------|--------------------------------|
+| `contracts/IInbox.sol` | `contracts/pod/IInbox.sol` |
+| `contracts/IInboxMiner.sol` | `contracts/pod/IInboxMiner.sol` |
+| `contracts/InboxUser.sol` | `contracts/pod/InboxUser.sol` |
+| `contracts/InboxUserCotiTestnet.sol` | `contracts/pod/InboxUserCotiTestnet.sol` |
+| `contracts/fee/IInboxFeeManager.sol` | `contracts/pod/fee/IInboxFeeManager.sol` |
+| `contracts/mpccodec/MpcAbiCodec.sol` | `contracts/pod/mpccodec/MpcAbiCodec.sol` |
+
+The script also writes `contracts/pod/SYNC_MANIFEST.json` (source commit + file hashes) and removes any obsolete `contracts/pod/inbox/` directory left from older syncs.
 
 ## Develop
 
