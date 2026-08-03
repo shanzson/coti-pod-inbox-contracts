@@ -30,7 +30,7 @@ import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
 import "@coti-io/coti-contracts/contracts/pod/mpccodec/MpcAbiCodec.sol";
 ```
 
-Local multi-repo installs use `"@coti-io/coti-contracts": "file:../coti-contracts"`.
+Local installs use `"@coti-io/coti-contracts": "1.3.5"` from npm.
 
 ## Develop
 
