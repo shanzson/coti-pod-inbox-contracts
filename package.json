@@ -7,6 +7,11 @@
     "type": "git",
     "url": "https://github.com/coti-io/coti-pod-inbox-contracts.git"
   },
+  "files": [
+    "contracts/**/*.sol",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "postinstall": "patch-package",
     "node:chain1": "HARDHAT_CHAIN_ID=31337 hardhat node --port 8545",
