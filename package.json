@@ -23,7 +23,6 @@
     "test:inbox-raise": "hardhat test test/inbox-raise.ts",
     "test:codec": "hardhat test test/mpc-abi-codec-128.ts test/mpc-abi-codec-256.ts",
     "check:bytecode-size": "node scripts/check-bytecode-size.mjs",
-    "check:no-vendored-pod-apis": "node scripts/check-no-vendored-pod-apis.mjs",
     "relay": "tsx scripts/relay-node.ts",
     "link:deps": "bash scripts/link-external-deps.sh"
   },

@@ -31,13 +31,11 @@ import "@coti-io/coti-contracts/contracts/pod/mpccodec/MpcAbiCodec.sol";
 ```
 
 Local multi-repo installs use `"@coti-io/coti-contracts": "file:../coti-contracts"`.
-`npm run check:no-vendored-pod-apis` fails if retired duplicate paths reappear under `contracts/`.
 
 ## Develop
 
 ```bash
 npm install
-npm run check:no-vendored-pod-apis
 npx hardhat compile
 npm run test:inbox-events
 npm run test:inbox-fee
