@@ -2,9 +2,9 @@
 
 Cross-chain **inbox** implementation for the COTI PoD stack: message routing, miner, fee manager, and oracle adapters.
 
-Shared PoD APIs (`IInbox`, `InboxUser`, `MpcAbiCodec`, fee/oracle interfaces, `PodNetworkConstants`) live in
-**[@coti-io/coti-contracts](https://github.com/coti-io/coti-contracts)** under `contracts/pod/` — this package
-depends on that library and must not re-vendor those files.
+Shared PoD APIs (`IInbox`, `InboxUser`, `MpcAbiCodec`, fee/oracle interfaces, `PodNetworkConstants`) and
+**`MpcCore`** live in **[@coti-io/coti-contracts](https://github.com/coti-io/coti-contracts)** — this package
+depends on that library (`1.3.5`) and must not re-vendor or symlink those files.
 
 dApp contracts (Privacy Portal, pERC20, PodLib, examples) also live in **coti-contracts**.
 
@@ -28,6 +28,7 @@ Import from the dependency, for example:
 ```solidity
 import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
 import "@coti-io/coti-contracts/contracts/pod/mpccodec/MpcAbiCodec.sol";
+import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 ```
 
 Local installs use `"@coti-io/coti-contracts": "1.3.5"` from npm.
