@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./IStdReference.sol";
+import "@coti-io/coti-contracts/contracts/oracle/IStdReference.sol";
 
 /// @title BandFeedLib
 /// @notice Read Band StdReference feeds; `rate` is base/quote × 1e18 (USD per whole base token when quote is USD).

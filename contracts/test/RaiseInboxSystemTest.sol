@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "../IInbox.sol";
-import "../InboxUser.sol";
+import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
+import "@coti-io/coti-contracts/contracts/pod/InboxUser.sol";
 
 /// @title RaiseInboxTestCoti
 /// @notice System test: COTI target that forwards `triggerRaise` to {IInbox.raise}.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "../band/IStdReference.sol";
+import "@coti-io/coti-contracts/contracts/oracle/IStdReference.sol";
 
 /// @title MockBandStdReference
 /// @notice Test double for Band StdReference.

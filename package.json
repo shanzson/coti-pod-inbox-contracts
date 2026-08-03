@@ -23,9 +23,9 @@
     "test:inbox-raise": "hardhat test test/inbox-raise.ts",
     "test:codec": "hardhat test test/mpc-abi-codec-128.ts test/mpc-abi-codec-256.ts",
     "check:bytecode-size": "node scripts/check-bytecode-size.mjs",
+    "check:no-vendored-pod-apis": "node scripts/check-no-vendored-pod-apis.mjs",
     "relay": "tsx scripts/relay-node.ts",
-    "link:deps": "bash scripts/link-external-deps.sh",
-    "sync:interfaces": "bash scripts/sync-inbox-interfaces.sh"
+    "link:deps": "bash scripts/link-external-deps.sh"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "^3.0.6",
@@ -41,6 +41,7 @@
     "viem": "^2.44.1"
   },
   "dependencies": {
+    "@coti-io/coti-contracts": "file:../coti-contracts",
     "@openzeppelin/contracts": "^5.4.0"
   }
 }

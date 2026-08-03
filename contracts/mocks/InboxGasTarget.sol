@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-import "../IInbox.sol";
+import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
 
 /// @title InboxGasTarget
 /// @notice Lightweight target used by Inbox gas benchmarks.

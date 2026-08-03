@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "../IInbox.sol";
+import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
 
 /// @dev Minimal source-app stand-in for Inbox system-error callback tests.
 contract SystemErrorReceiver {

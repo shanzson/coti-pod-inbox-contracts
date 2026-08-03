@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-import "../utils/mpc/MpcCore.sol";
+import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
-import "../InboxUser.sol";
+import "@coti-io/coti-contracts/contracts/pod/InboxUser.sol";
 
 /// @title MpcExecutorGt64Repro
 /// @notice Test-only executor: `gt64` paths used to reproduce {InboxMiner} `ERROR_CODE_EXECUTION_FAILED` (1) with the

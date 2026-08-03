@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "./ILivePriceMetaReader.sol";
-import "./IPodPriceOracle.sol";
+import "@coti-io/coti-contracts/contracts/pod/privacy/IPodPriceOracle.sol";
 import "./PriceOracle.sol";
 
 /// @title PoDPriceOracle

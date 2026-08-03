@@ -2,8 +2,8 @@
 pragma solidity ^0.8.20;
 
 import "./fee/InboxFeeManager.sol";
-import "./IInbox.sol";
-import "./mpccodec/MpcAbiCodec.sol";
+import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
+import "@coti-io/coti-contracts/contracts/pod/mpccodec/MpcAbiCodec.sol";
 
 /// @title InboxBase
 /// @notice Core inbox: outbound requests, inbound execution context, responses, errors, and MPC calldata encoding.

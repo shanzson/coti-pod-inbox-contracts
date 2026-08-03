@@ -1,10 +1,15 @@
 # COTI PoD Inbox Contracts
 
-Cross-chain **inbox** implementation for the COTI PoD stack: message routing, miner, fee manager, and `MpcAbiCodec`.
+Cross-chain **inbox** implementation for the COTI PoD stack: message routing, miner, fee manager, and oracle adapters.
 
-dApp contracts (Privacy Portal, pERC20, PodLib, examples) live in **[coti-contracts](https://github.com/coti-io/coti-contracts)** under `contracts/pod/`.
+Shared PoD APIs (`IInbox`, `InboxUser`, `MpcAbiCodec`, fee/oracle interfaces, `PodNetworkConstants`) live in
+**[@coti-io/coti-contracts](https://github.com/coti-io/coti-contracts)** under `contracts/pod/` — this package
+depends on that library and must not re-vendor those files.
 
-Integration tests, deploy orchestration, and the multi-repo dev workspace live in **[pod-ecosystem-integration](https://github.com/coti-io/pod-ecosystem-integration)**.
+dApp contracts (Privacy Portal, pERC20, PodLib, examples) also live in **coti-contracts**.
+
+Integration tests, deploy orchestration, and the multi-repo dev workspace live in
+**[pod-ecosystem-integration](https://github.com/coti-io/pod-ecosystem-integration)**.
 
 ## Layout
 
@@ -13,20 +18,19 @@ Integration tests, deploy orchestration, and the multi-repo dev workspace live i
 | `contracts/Inbox.sol` | Production inbox (miner + access control) |
 | `contracts/InboxBase.sol` | Core send/receive/request storage |
 | `contracts/InboxMiner.sol` | Batch miner for incoming requests |
-| `contracts/fee/` | Fee manager and price oracle |
-| `contracts/mpccodec/MpcAbiCodec.sol` | MPC method-call encoder (also synced to dApps) |
-| `contracts/IInbox.sol`, `InboxUser.sol` | Stable APIs copied into coti-contracts |
+| `contracts/fee/` | Fee manager and price oracle **implementations** |
+| `@coti-io/coti-contracts/contracts/pod/...` | Shared interfaces / `MpcAbiCodec` / `InboxUser` (npm dep) |
 
-## Sync to coti-contracts
+## Shared APIs
 
-After changing inbox-facing interfaces, push copies to dApp consumers:
+Import from the dependency, for example:
 
-```bash
-npm run sync:interfaces -- ../coti-contracts
-# or
-TARGET=../coti-contracts ./scripts/sync-inbox-interfaces.sh
+```solidity
+import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
+import "@coti-io/coti-contracts/contracts/pod/mpccodec/MpcAbiCodec.sol";
 ```
 
+<<<<<<< Updated upstream
 Synced files land under `coti-contracts/contracts/pod/` (consumer import path — not `pod/inbox/`):
 
 | Source (this repo) | Destination (`coti-contracts`) |
@@ -39,11 +43,16 @@ Synced files land under `coti-contracts/contracts/pod/` (consumer import path �
 | `contracts/mpccodec/MpcAbiCodec.sol` | `contracts/pod/mpccodec/MpcAbiCodec.sol` |
 
 The script also writes `contracts/pod/SYNC_MANIFEST.json` (source commit + file hashes) and removes any obsolete `contracts/pod/inbox/` directory left from older syncs.
+=======
+Local multi-repo installs use `"@coti-io/coti-contracts": "file:../coti-contracts"`.
+`npm run check:no-vendored-pod-apis` fails if retired duplicate paths reappear under `contracts/`.
+>>>>>>> Stashed changes
 
 ## Develop
 
 ```bash
 npm install
+npm run check:no-vendored-pod-apis
 npx hardhat compile
 npm run test:inbox-events
 npm run test:inbox-fee

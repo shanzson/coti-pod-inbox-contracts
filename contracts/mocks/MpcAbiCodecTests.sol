@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-import "../utils/mpc/MpcCore.sol";
+import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 /// @title MpcAbiCodecTests
 /// @notice Storage contract for MPC codec test callbacks.
