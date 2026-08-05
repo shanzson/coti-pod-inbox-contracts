@@ -6,10 +6,16 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@coti-io/coti-contracts/contracts/pod/IInboxMiner.sol";
 import "./InboxBase.sol";
 import "./MinerBase.sol";
+import "./lib/MinerRejectLib.sol";
 
 /// @title InboxMiner
 /// @notice Miner-driven inbox: ingest mined payloads, execute targets, and collect fees.
 abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGuard {
+    error NoncesNotContiguous();
+    error RequestAlreadyProcessed();
+    error InvalidSourceContract();
+
+    using MinerRejectLib for IInbox.MpcMethodCall;
     /// @notice Max bytes of target returndata retained on failure (prefix only).
     /// @dev Full payload is hashed; storing unbounded returndata can OOG the miner tx and wedge the
     ///      contiguous incoming-nonce queue (POD-02).
@@ -41,6 +47,10 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
             revert SourceChainIsThisChain(chainId);
         }
 
+        FeeConfig memory localCaps = localMinFeeConfig;
+        uint256 maxMethodCallBytes = localCaps.maxMethodCallBytes;
+        uint256 maxExecutionGas = localCaps.maxExecutionGas;
+
         uint256 allowedNonce = 1;
         if (lastIncomingRequestId[sourceChainId] != bytes32(0)) {
             (,, allowedNonce) = _unpackRequestId(lastIncomingRequestId[sourceChainId]);
@@ -57,61 +67,86 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
             if (minedTargetChainId != chainId) {
                 revert RequestTargetChainMismatch(requestId, chainId, minedTargetChainId);
             }
-            require(minedNonce == allowedNonce, "Inbox: mined nonces must be contiguous");
+            if (minedNonce != allowedNonce) revert NoncesNotContiguous();
             unchecked {
                 ++allowedNonce;
             }
             Request storage incomingRequest = incomingRequests[requestId];
-            require(incomingRequest.requestId == bytes32(0), "Inbox: request already processed");
-            require(minedRequest.sourceContract != address(0), "Inbox: invalid source contract");
-            require(minedRequest.targetContract != address(0), "Inbox: invalid target contract");
+            if (incomingRequest.requestId != bytes32(0)) revert RequestAlreadyProcessed();
+            if (minedRequest.sourceContract == address(0)) revert InvalidSourceContract();
+            if (minedRequest.targetContract == address(0)) revert InvalidTargetContract();
 
-            Request memory newIncomingRequest = Request({
-                requestId: requestId,
-                targetChainId: sourceChainId,
-                targetContract: minedRequest.targetContract,
-                methodCall: minedRequest.methodCall,
-                callerContract: minedRequest.sourceContract,
-                originalSender: minedRequest.sourceContract,
-                timestamp: uint64(block.timestamp),
-                callbackSelector: minedRequest.callbackSelector,
-                errorSelector: minedRequest.errorSelector,
-                isTwoWay: minedRequest.isTwoWay,
-                executed: false,
-                sourceRequestId: minedRequest.sourceRequestId,
-                targetFee: minedRequest.targetFee,
-                callerFee: minedRequest.callerFee
-            });
+            (bool isReject, uint8 rejectionCode, bytes32 rejectionReason) =
+                MinerRejectLib.parse(minedRequest.methodCall);
 
-            incomingRequests[requestId] = newIncomingRequest;
-            (
-                bytes4 methodSelector,
-                bytes32 methodCallHash,
-                uint256 dataLength,
-                uint16 datatypeCount,
-                uint16 datalenCount
-            ) = _methodCallLogData(minedRequest.methodCall);
-            emit MessageReceived(
-                requestId,
-                sourceChainId,
-                minedRequest.sourceContract,
-                methodSelector,
-                methodCallHash,
-                dataLength,
-                datatypeCount,
-                datalenCount
-            );
+            if (isReject) {
+                _ingestMinerReject(
+                    incomingRequest,
+                    minedRequest,
+                    sourceChainId,
+                    requestId,
+                    rejectionCode,
+                    rejectionReason
+                );
+            } else {
+                uint256 weight = MinerRejectLib.structuralSize(minedRequest.methodCall);
+                if (weight > maxMethodCallBytes) {
+                    revert MethodCallTooLarge(weight, maxMethodCallBytes);
+                }
+                if (minedRequest.targetFee > maxExecutionGas) {
+                    revert FeeGasTooHigh(minedRequest.targetFee, maxExecutionGas);
+                }
+                if (minedRequest.callerFee > maxExecutionGas) {
+                    revert FeeGasTooHigh(minedRequest.callerFee, maxExecutionGas);
+                }
 
-            _executeIncomingRequest(incomingRequest, sourceChainId);
+                Request memory newIncomingRequest = Request({
+                    requestId: requestId,
+                    targetChainId: sourceChainId,
+                    targetContract: minedRequest.targetContract,
+                    methodCall: minedRequest.methodCall,
+                    callerContract: minedRequest.sourceContract,
+                    originalSender: minedRequest.sourceContract,
+                    timestamp: uint64(block.timestamp),
+                    callbackSelector: minedRequest.callbackSelector,
+                    errorSelector: minedRequest.errorSelector,
+                    isTwoWay: minedRequest.isTwoWay,
+                    executed: false,
+                    sourceRequestId: minedRequest.sourceRequestId,
+                    targetFee: minedRequest.targetFee,
+                    callerFee: minedRequest.callerFee
+                });
 
-            if (incomingRequest.requestId != bytes32(0) && incomingRequest.sourceRequestId != bytes32(0)
-                && !incomingRequest.isTwoWay) {
-                bytes32 originalRequestId = incomingRequest.sourceRequestId;
-                Request storage originalRequest = requests[originalRequestId];
+                incomingRequests[requestId] = newIncomingRequest;
+                (
+                    bytes4 methodSelector,
+                    bytes32 methodCallHash,
+                    uint256 dataLength,
+                    uint16 datatypeCount,
+                    uint16 datalenCount
+                ) = _methodCallLogData(minedRequest.methodCall);
+                emit MessageReceived(
+                    requestId,
+                    sourceChainId,
+                    minedRequest.sourceContract,
+                    methodSelector,
+                    methodCallHash,
+                    dataLength,
+                    datatypeCount,
+                    datalenCount
+                );
 
-                if (originalRequest.requestId != bytes32(0) && !originalRequest.executed) {
-                    originalRequest.executed = true;
-                    emit IncomingResponseReceived(originalRequestId, incomingRequest.requestId);
+                _executeIncomingRequest(incomingRequest, sourceChainId);
+
+                if (incomingRequest.requestId != bytes32(0) && incomingRequest.sourceRequestId != bytes32(0)
+                    && !incomingRequest.isTwoWay) {
+                    bytes32 originalRequestId = incomingRequest.sourceRequestId;
+                    Request storage originalRequest = requests[originalRequestId];
+
+                    if (originalRequest.requestId != bytes32(0) && !originalRequest.executed) {
+                        originalRequest.executed = true;
+                        emit IncomingResponseReceived(originalRequestId, incomingRequest.requestId);
+                    }
                 }
             }
             unchecked {
@@ -122,6 +157,80 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
         if (mined.length > 0) {
             lastIncomingRequestId[sourceChainId] = mined[mined.length - 1].requestId;
         }
+    }
+
+    /// @dev Contiguous reject: store header only (empty methodCall), emit, system-error if two-way.
+    function _ingestMinerReject(
+        Request storage incomingRequest,
+        MinedRequest memory minedRequest,
+        uint256 sourceChainId,
+        bytes32 requestId,
+        uint8 rejectionCode,
+        bytes32 rejectionReason
+    ) private {
+        MpcMethodCall memory emptyCall = MpcMethodCall({
+            selector: bytes4(0),
+            data: new bytes(0),
+            datatypes: new bytes8[](0),
+            datalens: new bytes32[](0)
+        });
+
+        incomingRequests[requestId] = Request({
+            requestId: requestId,
+            targetChainId: sourceChainId,
+            targetContract: minedRequest.targetContract,
+            methodCall: emptyCall,
+            callerContract: minedRequest.sourceContract,
+            originalSender: minedRequest.sourceContract,
+            timestamp: uint64(block.timestamp),
+            callbackSelector: minedRequest.callbackSelector,
+            errorSelector: minedRequest.errorSelector,
+            isTwoWay: minedRequest.isTwoWay,
+            executed: true,
+            sourceRequestId: minedRequest.sourceRequestId,
+            targetFee: minedRequest.targetFee,
+            callerFee: minedRequest.callerFee
+        });
+
+        bytes memory reasonBytes = abi.encodePacked(rejectionReason);
+        errors[requestId] = Error({
+            requestId: requestId,
+            errorCode: ERROR_CODE_MINER_REJECTED,
+            errorMessage: reasonBytes
+        });
+        emit RequestRejected(requestId, rejectionCode, rejectionReason);
+        emit ErrorReceived(requestId, ERROR_CODE_MINER_REJECTED, reasonBytes);
+
+        if (minedRequest.isTwoWay) {
+            _sendSystemErrorCallbackWithCode(incomingRequest, ERROR_CODE_MINER_REJECTED, reasonBytes);
+        }
+
+        if (incomingRequest.sourceRequestId != bytes32(0) && !incomingRequest.isTwoWay) {
+            bytes32 originalRequestId = incomingRequest.sourceRequestId;
+            Request storage originalRequest = requests[originalRequestId];
+            if (originalRequest.requestId != bytes32(0) && !originalRequest.executed) {
+                originalRequest.executed = true;
+                emit IncomingResponseReceived(originalRequestId, incomingRequest.requestId);
+            }
+        }
+    }
+
+    /// @inheritdoc IInboxMiner
+    function buildMinerRejectMethodCall(uint8 rejectionCode, bytes32 rejectionReason)
+        external
+        pure
+        returns (IInbox.MpcMethodCall memory methodCall)
+    {
+        return MinerRejectLib.build(rejectionCode, rejectionReason);
+    }
+
+    /// @inheritdoc IInboxMiner
+    function isMinerRejectMethodCall(IInbox.MpcMethodCall memory methodCall)
+        external
+        pure
+        returns (bool isReject, uint8 rejectionCode, bytes32 rejectionReason)
+    {
+        return MinerRejectLib.parse(methodCall);
     }
 
     /// @notice Configure the oracle used for fee conversion.
@@ -148,6 +257,96 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
         _updateMinFeeConfigs(_local, _remote);
     }
 
+    /// @notice Set the respond/raise payload-weight cap (same units as {FeeConfig.maxMethodCallBytes}).
+    function setMaxReplyMethodCallBytes(uint32 maxBytes) external onlyOwner {
+        _setMaxReplyMethodCallBytes(maxBytes);
+    }
+
+    /// @notice Gas reserved after the estimate subcall so we can always encode {ExecutionGasEstimate}.
+    uint256 private constant ESTIMATE_OUTER_RESERVE = 150_000;
+
+    enum IncomingExecKind {
+        Mine,
+        Estimate,
+        Retry
+    }
+
+    /// @inheritdoc IInboxMiner
+    function estimateExecutionGasForMiner(
+        uint256 sourceChainId,
+        MinedRequest calldata mined,
+        uint256 maxUserGas
+    ) external {
+        if (_inEstimate || _currentContext.requestId != bytes32(0)) {
+            revert EstimateBusy();
+        }
+        if (sourceChainId == chainId) {
+            revert SourceChainIsThisChain(chainId);
+        }
+
+        bytes32 requestId = mined.requestId;
+        (uint256 minedChainId, uint256 minedTargetChainId,) = _unpackRequestId(requestId);
+        if (minedChainId != sourceChainId) {
+            revert RequestSourceChainMismatch(requestId, sourceChainId, minedChainId);
+        }
+        if (minedTargetChainId != chainId) {
+            revert RequestTargetChainMismatch(requestId, chainId, minedTargetChainId);
+        }
+        if (mined.sourceContract == address(0)) revert InvalidSourceContract();
+        if (mined.targetContract == address(0)) revert InvalidTargetContract();
+
+        (bool isReject,,) = MinerRejectLib.parse(mined.methodCall);
+        if (isReject) {
+            revert EstimateRejectNotExecutable();
+        }
+
+        FeeConfig memory localCaps = localMinFeeConfig;
+        uint256 weight = MinerRejectLib.structuralSize(mined.methodCall);
+        if (weight > localCaps.maxMethodCallBytes) {
+            revert MethodCallTooLarge(weight, localCaps.maxMethodCallBytes);
+        }
+        if (mined.targetFee > localCaps.maxExecutionGas) {
+            revert FeeGasTooHigh(mined.targetFee, localCaps.maxExecutionGas);
+        }
+        if (mined.callerFee > localCaps.maxExecutionGas) {
+            revert FeeGasTooHigh(mined.callerFee, localCaps.maxExecutionGas);
+        }
+
+        _inEstimate = true;
+        _estimateReplyKind = ESTIMATE_REPLY_NONE;
+        _estimateResponseDataSize = 0;
+        _estimateErrorDataSize = 0;
+
+        incomingRequests[requestId] = Request({
+            requestId: requestId,
+            targetChainId: sourceChainId,
+            targetContract: mined.targetContract,
+            methodCall: mined.methodCall,
+            callerContract: mined.sourceContract,
+            originalSender: mined.sourceContract,
+            timestamp: uint64(block.timestamp),
+            callbackSelector: mined.callbackSelector,
+            errorSelector: mined.errorSelector,
+            isTwoWay: mined.isTwoWay,
+            executed: false,
+            sourceRequestId: mined.sourceRequestId,
+            targetFee: mined.targetFee,
+            callerFee: mined.callerFee
+        });
+
+        uint256 gasUsed = _runIncomingExecution(
+            incomingRequests[requestId],
+            sourceChainId,
+            IncomingExecKind.Estimate,
+            maxUserGas
+        );
+
+        uint256 responseDataSize = _estimateResponseDataSize;
+        uint256 errorDataSize = _estimateErrorDataSize;
+        _inEstimate = false;
+        revert ExecutionGasEstimate(gasUsed, responseDataSize, errorDataSize);
+    }
+
     /// @inheritdoc IInboxMiner
     function collectFees(address payable to) external onlyOwner {
         _collectFees(to);
@@ -169,38 +368,21 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
             revert RetryFailedRequestNotAFailedRequest();
         }
 
-        _currentContext = ExecutionContext({
-            remoteChainId: sourceChainId,
-            remoteContract: incomingRequest.originalSender,
-            requestId: requestId
-        });
-
-        address targetContract = incomingRequest.targetContract;
-        (bool encodedOk, bytes memory callData, bytes memory encodeErr) = _safeEncodeMethodCall(
-            incomingRequest.methodCall
-        );
-        if (!encodedOk) {
-            // Preserve ERROR_CODE_EXECUTION_FAILED so retry stays eligible (POD-04).
-            // Do not overwrite with encode-failed or emit a system callback on this path.
-            _currentContext = ExecutionContext({remoteChainId: 0, remoteContract: address(0), requestId: bytes32(0)});
-            revert RetryFailedRequestEncodeFailed(encodeErr);
-        }
-
-        (bool success, bytes memory returnData) = _callWithCappedReturnData(targetContract, gasleft(), callData);
-        _currentContext = ExecutionContext({remoteChainId: 0, remoteContract: address(0), requestId: bytes32(0)});
-
-        if (!success) {
-            revert RetryFailedRequestExecutionFailed(returnData);
-        }
-
-        delete errors[requestId];
-        emit RetryFailedRequestSuccess(requestId);
+        _runIncomingExecution(incomingRequest, sourceChainId, IncomingExecKind.Retry, 0);
     }
 
     /// @dev Executes one mined request: encode calldata, call target with `gas` from `targetFee`, record errors.
-    /// @param incomingRequest Storage ref to the incoming request.
-    /// @param sourceChainId Chain that sent the request.
     function _executeIncomingRequest(Request storage incomingRequest, uint256 sourceChainId) internal {
+        _runIncomingExecution(incomingRequest, sourceChainId, IncomingExecKind.Mine, 0);
+    }
+
+    /// @dev Shared mine / estimate / retry execution path.
+    function _runIncomingExecution(
+        Request storage incomingRequest,
+        uint256 sourceChainId,
+        IncomingExecKind kind,
+        uint256 maxUserGas
+    ) private returns (uint256 gasUsed) {
         _currentContext = ExecutionContext({
             remoteChainId: sourceChainId,
             remoteContract: incomingRequest.originalSender,
@@ -208,41 +390,53 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
         });
 
         address targetContract = incomingRequest.targetContract;
-        (bool encodedOk, bytes memory callData, bytes memory encodeErr) = _safeEncodeMethodCall(
-            incomingRequest.methodCall
-        );
+        (bool encodedOk, bytes memory callData, bytes memory encodeErr) =
+            _safeEncodeMethodCall(incomingRequest.methodCall);
 
         if (!encodedOk) {
+            if (kind == IncomingExecKind.Retry) {
+                // Preserve ERROR_CODE_EXECUTION_FAILED so retry stays eligible (POD-04).
+                _clearExecutionContext();
+                revert RetryFailedRequestEncodeFailed(encodeErr);
+            }
             _recordEncodeError(incomingRequest.requestId, encodeErr);
             _sendSystemErrorCallback(incomingRequest, encodeErr);
-
-            _currentContext = ExecutionContext({remoteChainId: 0, remoteContract: address(0), requestId: bytes32(0)});
-
+            _clearExecutionContext();
             incomingRequest.executed = true;
-            return;
+            return 0;
         }
 
+        uint256 gasForCall;
         uint256 targetGasBudget = _localRequestExecutionBudget(incomingRequest.targetFee);
-        // Leave headroom so capping returndata and writing storage cannot OOG the outer tx.
-        uint256 gasForCall = gasleft();
-        if (gasForCall > POST_CALL_GAS_RESERVE) {
-            unchecked {
-                gasForCall -= POST_CALL_GAS_RESERVE;
-            }
-        }
-        if (targetGasBudget < gasForCall) {
-            gasForCall = targetGasBudget;
+        if (kind == IncomingExecKind.Retry) {
+            gasForCall = gasleft();
+        } else {
+            uint256 outerReserve =
+                kind == IncomingExecKind.Estimate ? ESTIMATE_OUTER_RESERVE : POST_CALL_GAS_RESERVE;
+            gasForCall = _computeUserCallGas(targetGasBudget, outerReserve, maxUserGas);
         }
 
         uint256 gasBeforeSubcall = gasleft();
-        (bool success, bytes memory returnData) = _callWithCappedReturnData(targetContract, gasForCall, callData);
+        (bool success, bytes memory returnData) =
+            _callWithCappedReturnData(targetContract, gasForCall, callData);
+        gasUsed = gasBeforeSubcall - gasleft();
 
-        uint256 gasUsed = gasBeforeSubcall - gasleft();
+        if (kind == IncomingExecKind.Retry) {
+            _clearExecutionContext();
+            if (!success) {
+                revert RetryFailedRequestExecutionFailed(returnData);
+            }
+            delete errors[incomingRequest.requestId];
+            emit RetryFailedRequestSuccess(incomingRequest.requestId);
+            return gasUsed;
+        }
+
         uint256 gasRemainingApprox = targetGasBudget > gasUsed ? targetGasBudget - gasUsed : 0;
-        emit FeeExecutionSettled(incomingRequest.requestId, gasUsed, gasRemainingApprox);
+        if (!_inEstimate) {
+            emit FeeExecutionSettled(incomingRequest.requestId, gasUsed, gasRemainingApprox);
+        }
 
-        _currentContext = ExecutionContext({remoteChainId: 0, remoteContract: address(0), requestId: bytes32(0)});
-
+        _clearExecutionContext();
         incomingRequest.executed = true;
 
         if (!success) {
@@ -252,7 +446,33 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
                 errorCode: ERROR_CODE_EXECUTION_FAILED,
                 errorMessage: returnData
             });
-            emit ErrorReceived(rid, ERROR_CODE_EXECUTION_FAILED, returnData);
+            if (!_inEstimate) {
+                emit ErrorReceived(rid, ERROR_CODE_EXECUTION_FAILED, returnData);
+            }
+        }
+    }
+
+    function _clearExecutionContext() private {
+        _currentContext = ExecutionContext({remoteChainId: 0, remoteContract: address(0), requestId: bytes32(0)});
+    }
+
+    /// @dev Cap user subcall gas by prepaid budget, outer reserve, and optional maxUserGas (0 = uncapped).
+    function _computeUserCallGas(uint256 targetGasBudget, uint256 outerReserve, uint256 maxUserGas)
+        private
+        view
+        returns (uint256 gasForCall)
+    {
+        gasForCall = gasleft();
+        if (gasForCall > outerReserve) {
+            unchecked {
+                gasForCall -= outerReserve;
+            }
+        }
+        if (targetGasBudget < gasForCall) {
+            gasForCall = targetGasBudget;
+        }
+        if (maxUserGas != 0 && maxUserGas < gasForCall) {
+            gasForCall = maxUserGas;
         }
     }
 

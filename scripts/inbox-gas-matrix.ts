@@ -1,6 +1,7 @@
 import { encodeFunctionData, zeroHash } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "./oracle-tokens.js";
+import { deployLinkedInbox, mpcAbiReEncodeOf } from "./deploy-inbox-linked.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
@@ -17,6 +18,10 @@ const CONSTANT_FEE = {
   callbackExecutionGas: 0n,
   errorLength: 0n,
   bufferRatioX10000: 0n,
+  maxMethodCallBytes: 8192n,
+  maxExecutionGas: 5_000_000n,
+  gasPriceMul: 1n,
+  gasPriceDiv: 1n,
 } as const;
 
 const rawMethodCall = (data: `0x${string}`) => ({
@@ -33,10 +38,10 @@ const main = async () => {
   const deployer = wallet.account.address as `0x${string}`;
 
   const deployInbox = async (chainId: bigint, withOracle: boolean) => {
-    const inbox = await viem.deployContract("Inbox", [], {
+    const inbox = await deployLinkedInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await inbox.write.init([deployer, chainId], { account: deployer });
+    await inbox.write.init([deployer, chainId, mpcAbiReEncodeOf(inbox)], { account: deployer });
     await inbox.write.updateMinFeeConfigs([{ ...CONSTANT_FEE }, { ...CONSTANT_FEE }], { account: deployer });
     if (withOracle) {
       const oracle = await viem.deployContract("PriceOracle", [deployer], {

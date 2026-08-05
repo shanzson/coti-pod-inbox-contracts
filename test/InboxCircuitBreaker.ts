@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
 import { network } from "hardhat";
-import { receiptWaitOptions } from "../system/mpc-test-utils.js";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
+import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
 
 describe("Inbox circuit breaker and oracle guards", { concurrency: 1 }, async function () {
   const { viem } = await network.connect({ network: "hardhat" });
@@ -13,10 +13,10 @@ describe("Inbox circuit breaker and oracle guards", { concurrency: 1 }, async fu
   let inbox: any;
 
   before(async function () {
-    inbox = await viem.deployContract("Inbox", [], {
+    inbox = await deployLinkedInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await inbox.write.init([deployer, 0n], { account: deployer });
+    await inbox.write.init([deployer, 0n, mpcAbiReEncodeOf(inbox)], { account: deployer });
     await inbox.write.addMiner([deployer], { account: deployer });
   });
 

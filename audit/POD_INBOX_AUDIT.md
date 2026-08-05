@@ -1,6 +1,6 @@
 # PoD Inbox & Message-Passing — Internal Security Review
 
-**Scope:** `coti-pod-inbox-contracts/contracts/` — `InboxBase.sol`, `Inbox.sol`, `InboxMiner.sol`, `MinerBase.sol`, `InboxUser.sol`, `IInbox.sol`, `IInboxMiner.sol`, `mpccodec/MpcAbiCodec.sol`, `fee/InboxFeeManager.sol`, `fee/PriceOracle.sol`, `fee/PoDPriceOracle.sol`, and the fee/oracle adapter stack (Chainlink, Band, Uniswap). The vendored `utils/mpc/MpcCore.sol` was reviewed only at its integration surface (`validateCiphertext`, `onBoard`/`offBoard`), not line-by-line.
+**Scope:** `coti-pod-inbox-contracts/contracts/` — `InboxBase.sol`, `Inbox.sol`, `InboxMiner.sol`, `MinerBase.sol`, `InboxUser.sol`, `IInbox.sol`, `IInboxMiner.sol`, `MpcAbiReEncode.sol`, `fee/InboxFeeManager.sol`, `fee/PriceOracle.sol`, `fee/PoDPriceOracle.sol`, and the fee/oracle adapter stack (Chainlink, Band, Uniswap). Builder library `MpcAbiCodec` lives in coti-contracts. The vendored `utils/mpc/MpcCore.sol` was reviewed only at its integration surface (`validateCiphertext`, `onBoard`/`offBoard`), not line-by-line.
 
 **Method:** full manual read of the in-scope contracts, tracing outbound send → mined ingestion → target execution → response/error return legs, including the staged system-error change-set. This is a read-and-report review; no contract code was modified.
 

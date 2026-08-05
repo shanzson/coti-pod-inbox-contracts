@@ -8,6 +8,7 @@ import {
   usdPerWholeToken18,
 } from "../scripts/deploy-utils.js";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
+import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
 
 /** Same as `mpc-test-utils.receiptWaitOptions` — avoid importing full mpc-test-utils (coti-ethers, etc.) in this file. */
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
@@ -56,13 +57,17 @@ const PRICE_SCALE_18 = 10n ** 18n;
 /** Remote leg minimum gas units (constant template). */
 const REMOTE_MIN_GAS_UNITS = 18_000_000n;
 
-/** Local leg template (non-constant). */
+/** Local leg template (non-constant). `maxExecutionGas` raised so 18M remote constant fees still admit. */
 const LOCAL_TEMPLATE = {
   constantFee: 0n,
   gasPerByte: 10n,
   callbackExecutionGas: 100_000n,
   errorLength: 300n,
   bufferRatioX10000: 20_000n,
+  maxMethodCallBytes: 8192n,
+  maxExecutionGas: 30_000_000n,
+  gasPriceMul: 1n,
+  gasPriceDiv: 1n,
 } as const;
 
 /**
@@ -75,7 +80,13 @@ const TX_GAS_PRICE_WEI = 25_000_000_000n;
 
 function expectedTemplateMinGasUnits(
   dataSize: bigint,
-  cfg: { constantFee: bigint; gasPerByte: bigint; callbackExecutionGas: bigint; errorLength: bigint; bufferRatioX10000: bigint }
+  cfg: {
+    constantFee: bigint;
+    gasPerByte: bigint;
+    callbackExecutionGas: bigint;
+    errorLength: bigint;
+    bufferRatioX10000: bigint;
+  },
 ): bigint {
   if (cfg.constantFee > 0n) return cfg.constantFee;
   const base =
@@ -186,10 +197,10 @@ describe(
       const { localUsd18, remoteUsd18 } = prices;
       const { viem, publicClient, wallet, deployer } = await getCtx();
       logStep("Deploy Inbox + PriceOracle (owner = deployer)");
-      const inbox = await viem.deployContract("Inbox", [], {
+      const inbox = await deployLinkedInbox(viem, {
         client: { public: publicClient, wallet },
       });
-      await inbox.write.init([deployer, 0n], { account: deployer });
+      await inbox.write.init([deployer, 0n, mpcAbiReEncodeOf(inbox)], { account: deployer });
       const oracle = await viem.deployContract("PriceOracle", [deployer], {
         client: { public: publicClient, wallet },
       });
@@ -213,6 +224,10 @@ describe(
       callbackExecutionGas: 0n,
       errorLength: 0n,
       bufferRatioX10000: 10_000n,
+      maxMethodCallBytes: 8192n,
+      maxExecutionGas: 30_000_000n,
+  gasPriceMul: 1n,
+  gasPriceDiv: 1n,
     };
 
     it(

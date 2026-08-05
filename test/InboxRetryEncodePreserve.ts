@@ -8,6 +8,7 @@ import {
 } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
+import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 const MPC_PRECOMPILE = "0x0000000000000000000000000000000000000064" as const;
@@ -22,6 +23,10 @@ const CONSTANT_FEE = {
   callbackExecutionGas: 0n,
   errorLength: 0n,
   bufferRatioX10000: 0n,
+  maxMethodCallBytes: 8192n,
+  maxExecutionGas: 5_000_000n,
+  gasPriceMul: 1n,
+  gasPriceDiv: 1n,
 } as const;
 
 /** MpcAbiCodec.MpcDataType.IT_UINT64 */
@@ -50,10 +55,10 @@ describe("Inbox POD-04 retry encode failure", { concurrency: false, timeout: 600
       params: [MPC_PRECOMPILE, mockCode],
     });
 
-    const inbox = await viem.deployContract("Inbox", [], {
+    const inbox = await deployLinkedInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await inbox.write.init([deployer, TARGET_CHAIN_ID], { account: deployer });
+    await inbox.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(inbox)], { account: deployer });
     await inbox.write.updateMinFeeConfigs([{ ...CONSTANT_FEE }, { ...CONSTANT_FEE }], {
       account: deployer,
     });

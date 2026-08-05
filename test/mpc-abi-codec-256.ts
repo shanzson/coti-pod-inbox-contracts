@@ -142,7 +142,8 @@ describe("MpcAbiCodec256 - Contract integration", async function () {
       params: [MPC_PRECOMPILE, bytecode ?? "0x"] as any,
     });
 
-    harness = await viem.deployContract("MpcAbiCodecHarness", []);
+    const reEncode = await viem.deployContract("MpcAbiReEncode", []);
+    harness = await viem.deployContract("MpcAbiCodecHarness", [reEncode.address]);
     target = await viem.deployContract("MpcAbiCodecTests", []);
   });
 

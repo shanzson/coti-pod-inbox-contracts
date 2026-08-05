@@ -4,11 +4,18 @@ pragma solidity ^0.8.20;
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 import "@coti-io/coti-contracts/contracts/pod/mpccodec/MpcAbiCodec.sol";
+import "../MpcAbiReEncode.sol";
 
 /// @title MpcAbiCodecHarness
 /// @notice Test wrapper exposing {MpcAbiCodec} helpers for Hardhat tests.
 contract MpcAbiCodecHarness {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
+
+    MpcAbiReEncode public immutable codec;
+
+    constructor(address mpcAbiReEncode_) {
+        codec = MpcAbiReEncode(mpcAbiReEncode_);
+    }
 
     /// @notice Build and re-encode a static call to test MPC ABI logic.
     /// @param selector The method selector to use.
@@ -27,7 +34,7 @@ contract MpcAbiCodecHarness {
         ctx = ctx.addArgument(b);
         ctx = ctx.addArgument(c);
         ctx.mpcMethodCall.selector = selector;
-        return MpcAbiCodec.reEncodeWithGt(ctx.build());
+        return codec.reEncodeWithGt(ctx.build());
     }
 
     /// @notice Build and re-encode a dynamic call to test MPC ABI logic.
@@ -53,7 +60,7 @@ contract MpcAbiCodecHarness {
         ctx = ctx.addArgument(addrs);
         ctx = ctx.addArgument(b32s);
         ctx.mpcMethodCall.selector = selector;
-        return MpcAbiCodec.reEncodeWithGt(ctx.build());
+        return codec.reEncodeWithGt(ctx.build());
     }
 
     /// @notice Build and re-encode a mixed call to test MPC ABI logic.
@@ -79,7 +86,7 @@ contract MpcAbiCodecHarness {
         ctx = ctx.addArgument(c);
         ctx = ctx.addArgument(data);
         ctx.mpcMethodCall.selector = selector;
-        return MpcAbiCodec.reEncodeWithGt(ctx.build());
+        return codec.reEncodeWithGt(ctx.build());
     }
 
     /// @notice Build and re-encode calls with it-* types to test MPC ABI logic.
@@ -139,7 +146,7 @@ contract MpcAbiCodecHarness {
             ctx = ctx.addArgument(itS);
         }
         ctx.mpcMethodCall.selector = selector;
-        return MpcAbiCodec.reEncodeWithGt(ctx.build());
+        return codec.reEncodeWithGt(ctx.build());
     }
 
     /// @dev Build an itString from ciphertext parts and signatures.

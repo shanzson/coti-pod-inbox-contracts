@@ -1,13 +1,16 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
-import { defineChain, parseUnits, zeroAddress, createPublicClient, http, type PublicClient, type WalletClient } from "viem";
+import { defineChain, parseUnits, zeroAddress, createPublicClient, http, getAddress, type PublicClient, type WalletClient, type Address } from "viem";
 import { oracleTokensForChain } from "./oracle-tokens.js";
 import {
+  deployCreate3Deterministic,
   deployInboxDeterministic as deployInboxViaCreateX,
+  MPC_ABI_REENCODE_SALT_LABEL,
   type DeployInboxDeterministicResult,
   type InboxArtifact,
 } from "./createx.js";
+import { type LinkReferences } from "./link-inbox-bytecode.js";
 import { MANUAL_USD_PEG_18, usdcUnderlyingForChain } from "./oracle-pegs.js";
 
 /** Etherscan requires the full solc commit suffix; Hardhat build-info may omit it. */
@@ -100,6 +103,14 @@ export type FeeConfigJson = {
   callbackExecutionGas: string | number;
   errorLength: string | number;
   bufferRatioX10000: string | number;
+  /** Payload-weight cap (bytes); required even when constantFee > 0. */
+  maxMethodCallBytes: string | number;
+  /** Max gas-unit budget for targetFee/callerFee; required even when constantFee > 0. */
+  maxExecutionGas: string | number;
+  /** H-02 gas-price skew numerator (default 1). */
+  gasPriceMul: string | number;
+  /** H-02 gas-price skew denominator (default 1). */
+  gasPriceDiv: string | number;
 };
 
 type DeployConfig = {
@@ -261,6 +272,7 @@ export const chainlinkFeedsForChain = (chainId: number): ChainlinkFeedConfig => 
 /**
  * Sepolia-side fee template (variable minimum): `constantFee == 0` and all template fields non-zero.
  * Used as **local** on Sepolia and as **remote** on COTI when paired with {@link FEE_CONFIG_COTI_SIDE}.
+ * On-chain `FeeConfig` fields are `uint32` (one storage slot); values must fit.
  */
 export const FEE_CONFIG_SEPOLIA_SIDE = {
   constantFee: 0n,
@@ -268,11 +280,16 @@ export const FEE_CONFIG_SEPOLIA_SIDE = {
   callbackExecutionGas: 100_000n,
   errorLength: 300n,
   bufferRatioX10000: 5000n,
+  maxMethodCallBytes: 8192n,
+  maxExecutionGas: 5_000_000n,
+  gasPriceMul: 1n,
+  gasPriceDiv: 1n,
 } as const;
 
 /**
- * COTI-side fee template (constant minimum gas units): `constantFee > 0` and other fields zero.
- * Used as **remote** on Sepolia and as **local** on COTI when paired with {@link FEE_CONFIG_SEPOLIA_SIDE}.
+ * COTI-side fee template (constant minimum gas units): `constantFee > 0` and other variable fields zero.
+ * Max size/gas caps are still required. Used as **remote** on Sepolia and as **local** on COTI when paired
+ * with {@link FEE_CONFIG_SEPOLIA_SIDE}.
  */
 export const FEE_CONFIG_COTI_SIDE = {
   constantFee: 12_000_000n,
@@ -280,6 +297,11 @@ export const FEE_CONFIG_COTI_SIDE = {
   callbackExecutionGas: 0n,
   errorLength: 0n,
   bufferRatioX10000: 0n,
+  maxMethodCallBytes: 8192n,
+  // Must be ≥ constantFee or create/ingest always reverts FeeGasTooHigh.
+  maxExecutionGas: 12_000_000n,
+  gasPriceMul: 1n,
+  gasPriceDiv: 1n,
 } as const;
 
 export type FeeConfigTuple = {
@@ -288,6 +310,10 @@ export type FeeConfigTuple = {
   callbackExecutionGas: bigint;
   errorLength: bigint;
   bufferRatioX10000: bigint;
+  maxMethodCallBytes: bigint;
+  maxExecutionGas: bigint;
+  gasPriceMul: bigint;
+  gasPriceDiv: bigint;
 };
 
 /** Convert a deployConfig.json fee template into an on-chain `FeeConfig` tuple. */
@@ -297,6 +323,10 @@ export const feeConfigTupleFromJson = (j: FeeConfigJson): FeeConfigTuple => ({
   callbackExecutionGas: BigInt(j.callbackExecutionGas),
   errorLength: BigInt(j.errorLength),
   bufferRatioX10000: BigInt(j.bufferRatioX10000),
+  maxMethodCallBytes: BigInt(j.maxMethodCallBytes),
+  maxExecutionGas: BigInt(j.maxExecutionGas),
+  gasPriceMul: BigInt(j.gasPriceMul ?? 1),
+  gasPriceDiv: BigInt(j.gasPriceDiv ?? 1),
 });
 
 /** Convert an on-chain `FeeConfig` tuple into a JSON-safe deployConfig.json template. */
@@ -306,6 +336,10 @@ export const feeConfigTupleToJson = (t: FeeConfigTuple): FeeConfigJson => ({
   callbackExecutionGas: t.callbackExecutionGas.toString(),
   errorLength: t.errorLength.toString(),
   bufferRatioX10000: t.bufferRatioX10000.toString(),
+  maxMethodCallBytes: t.maxMethodCallBytes.toString(),
+  maxExecutionGas: t.maxExecutionGas.toString(),
+  gasPriceMul: t.gasPriceMul.toString(),
+  gasPriceDiv: t.gasPriceDiv.toString(),
 });
 
 /**
@@ -584,22 +618,30 @@ export const deployAndWireTestnetPriceOracle = async (
   return oracle;
 };
 
-/** Load the compiled `Inbox` artifact (abi + constructor-arg-free creation bytecode) from disk. */
-export const readInboxArtifact = async (): Promise<InboxArtifact> => {
+type InboxArtifactJson = {
+  abi: InboxArtifact["abi"];
+  bytecode?: string;
+  linkReferences?: LinkReferences;
+};
+
+/** Load the compiled `Inbox` artifact (abi + creation bytecode + library link refs) from disk. */
+export const readInboxArtifact = async (): Promise<InboxArtifact & { linkReferences: LinkReferences }> => {
   const artifactPath = path.resolve(process.cwd(), "artifacts/contracts/Inbox.sol/Inbox.json");
   const raw = await fs.readFile(artifactPath, "utf8");
-  const json = JSON.parse(raw) as { abi: InboxArtifact["abi"]; bytecode?: string };
+  const json = JSON.parse(raw) as InboxArtifactJson;
   if (!json.bytecode || !json.bytecode.startsWith("0x")) {
     throw new Error("readInboxArtifact: missing/invalid bytecode (run `npx hardhat compile` first)");
   }
-  return { abi: json.abi, bytecode: json.bytecode as `0x${string}` };
+  return {
+    abi: json.abi,
+    bytecode: json.bytecode as `0x${string}`,
+    linkReferences: json.linkReferences ?? {},
+  };
 };
 
 /**
- * Deploy the Inbox deterministically via CreateX `deployCreate3AndInit` (same address on every
- * chain) and return a viem contract instance bound to the deterministic address. `init` runs
- * atomically with `chainId = block.chainid` and `owner = deployer`. Idempotent: if code already
- * exists at the precomputed address, no transaction is sent.
+ * Deploy optional {MpcAbiReEncode} via CREATE3 (COTI), then Inbox via CreateX `deployCreate3AndInit`.
+ * Pass `deployReEncode: true` (or a salt label) on COTI; omit on non-MPC chains (`address(0)`).
  */
 export const deployDeterministicInbox = async (params: {
   viem: {
@@ -613,9 +655,55 @@ export const deployDeterministicInbox = async (params: {
   walletClient: WalletClient;
   /** Salt label driving the deterministic address family; defaults to the createx constant. */
   saltLabel?: string;
-}): Promise<DeployInboxDeterministicResult & { inbox: any; deployer: `0x${string}` }> => {
+  /** When true / salt label set, CREATE3-deploy {MpcAbiReEncode} and pass into Inbox.init. */
+  deployReEncode?: boolean;
+  reEncodeSaltLabel?: string;
+}): Promise<
+  DeployInboxDeterministicResult & {
+    inbox: any;
+    deployer: `0x${string}`;
+    mpcAbiReEncode: Address;
+  }
+> => {
   const deployer = await resolveDeployerAddress(params.walletClient);
-  const artifact = await readInboxArtifact();
+  let mpcAbiReEncode: Address = zeroAddress;
+  if (params.deployReEncode || params.reEncodeSaltLabel) {
+    const reEncodePathCandidates = [
+      path.resolve(process.cwd(), "artifacts/contracts/MpcAbiReEncode.sol/MpcAbiReEncode.json"),
+    ];
+    let bytecode: `0x${string}` | undefined;
+    for (const p of reEncodePathCandidates) {
+      try {
+        const json = JSON.parse(await fs.readFile(p, "utf8")) as { bytecode?: string };
+        if (json.bytecode?.startsWith("0x")) {
+          bytecode = json.bytecode as `0x${string}`;
+          break;
+        }
+      } catch {
+        // try next
+      }
+    }
+    if (!bytecode) {
+      throw new Error("deployDeterministicInbox: MpcAbiReEncode artifact missing (compile first)");
+    }
+    const codecDeploy = await deployCreate3Deterministic({
+      publicClient: params.publicClient,
+      walletClient: params.walletClient,
+      deployer,
+      bytecode,
+      saltLabel: params.reEncodeSaltLabel ?? MPC_ABI_REENCODE_SALT_LABEL,
+    });
+    mpcAbiReEncode = getAddress(codecDeploy.address);
+  }
+
+  const unlinked = await readInboxArtifact();
+  if (Object.keys(unlinked.linkReferences).length > 0) {
+    throw new Error(
+      "deployDeterministicInbox: Inbox still has linkReferences; expected no solc library links"
+    );
+  }
+  const artifact: InboxArtifact = { abi: unlinked.abi, bytecode: unlinked.bytecode };
+
   const result = await deployInboxViaCreateX({
     publicClient: params.publicClient,
     walletClient: params.walletClient,
@@ -623,11 +711,17 @@ export const deployDeterministicInbox = async (params: {
     chainId: 0n,
     artifact,
     saltLabel: params.saltLabel,
+    mpcAbiReEncode,
   });
   const inbox = await params.viem.getContractAt("Inbox", result.address, {
     client: { public: params.publicClient, wallet: params.walletClient },
   });
-  return { ...result, inbox, deployer };
+  return {
+    ...result,
+    inbox,
+    deployer,
+    mpcAbiReEncode,
+  };
 };
 
 /** Register `miner` on the inbox only if not already registered (idempotent; avoids reverts/wasted gas). */

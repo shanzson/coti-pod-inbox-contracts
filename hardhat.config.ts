@@ -85,12 +85,16 @@ export default defineConfig({
     version: "0.8.28",
     preferWasm: false,
     settings: {
-      evmVersion: "cancun",
+      evmVersion: "paris",
       viaIR: true,
       optimizer: {
         enabled: true,
-        // Lower runs shrink deployment size (higher runtime gas). For Inbox ~29kB, try 1–200.
-        runs: 10,
+        // Lower runs shrink deployment size (higher runtime gas). Inbox must stay ≤24_576 create limit.
+        runs: 1,
+      },
+      metadata: {
+        // Drop CBOR metadata hash from bytecode (~53 bytes); prefer size over sourcify hash embedding.
+        bytecodeHash: "none",
       },
     },
   },

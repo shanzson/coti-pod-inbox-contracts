@@ -2,13 +2,15 @@
 pragma solidity ^0.8.20;
 
 import "./fee/InboxFeeManager.sol";
+import "./lib/MinerRejectLib.sol";
+import "./MpcAbiReEncode.sol";
 import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
-import "@coti-io/coti-contracts/contracts/pod/mpccodec/MpcAbiCodec.sol";
 
 /// @title InboxBase
 /// @notice Core inbox: outbound requests, inbound execution context, responses, errors, and MPC calldata encoding.
 /// @dev Mixed with {InboxFeeManager}. Subcontracts add miner and ownership behavior.
 contract InboxBase is IInbox, InboxFeeManager {
+    using MinerRejectLib for MpcMethodCall;
     /// @notice This chain's ID (deploy-time; may differ from `block.chainid` when `_chainId` is non-zero).
     uint256 public chainId;
 
@@ -30,11 +32,47 @@ contract InboxBase is IInbox, InboxFeeManager {
     /// chain sends to several targets, which is what the miner's contiguity guard relies on.
     mapping(uint256 => uint256) internal _requestNonce;
 
+    /// @dev C-04 estimate mode: no lasting state (always-revert); skip emits; accumulate reply sizes.
+    bool internal _inEstimate;
+    /// @dev 0 = none, 1 = respond outbound, 2 = raise/system-error outbound.
+    uint8 internal _estimateReplyKind;
+    uint256 internal _estimateResponseDataSize;
+    uint256 internal _estimateErrorDataSize;
+
+    uint8 internal constant ESTIMATE_REPLY_NONE = 0;
+    uint8 internal constant ESTIMATE_REPLY_RESPONSE = 1;
+    uint8 internal constant ESTIMATE_REPLY_ERROR = 2;
+
     /// @dev One-time initialization guard for {_initInboxBase}.
     bool private _initialized;
 
+    error AlreadyInitialized();
+    error NoActiveMessage();
+    error ReplyAlreadySent();
+    error RequestNotFound();
+    error OnlyTargetCanReply();
+    error OriginalSenderNotFound();
+    error NoErrorHandler();
+    error ErrorNotFound();
+    error ResponseNotFound();
+    error CannotSendToSameChain();
+    error InvalidTargetContract();
+    error InvalidRequestSender();
+    error SourceChainIdTooLarge();
+    error TargetChainIdTooLarge();
+    error NonceTooLarge();
+    error RawCallHasDatatypes();
+    error RawCallHasDatalens();
+    error MpcAbiReEncodeRequired();
+
+    /// @notice Storage-free re-encode helper; Inbox DELEGATECALLs it (COTI). Zero on non-MPC chains.
+    address public mpcAbiReEncode;
+
+
     uint64 internal constant ERROR_CODE_EXECUTION_FAILED = 1;
     uint64 internal constant ERROR_CODE_ENCODE_FAILED = 2;
+    /// @notice Miner rejected an inbound nonce via the special reject {MpcMethodCall} encoding.
+    uint64 internal constant ERROR_CODE_MINER_REJECTED = 3;
 
     /// @notice Placeholder `originalSender` for Inbox-generated system-error return legs (not a real contract).
     /// @dev Error callbacks must not require `inboxMsgSender()` to equal the COTI peer; use {onlyInbox} +
@@ -93,12 +131,14 @@ contract InboxBase is IInbox, InboxFeeManager {
     /// @param gasRemainingApprox Remaining gas budget from `targetFee` after the subcall (floored at zero).
     event FeeExecutionSettled(bytes32 indexed requestId, uint256 gasUsed, uint256 gasRemainingApprox);
 
-    /// @dev One-time base initializer. Sets `chainId` and trips the init guard.
+    /// @dev One-time base initializer. Sets `chainId`, optional re-encode helper, and trips the init guard.
     /// @param _chainId This chain's ID; pass `0` to use `block.chainid`.
-    function _initInboxBase(uint256 _chainId) internal {
-        require(!_initialized, "Inbox: initialized");
+    /// @param _mpcAbiReEncode COTI re-encode contract (`address(0)` on non-MPC chains).
+    function _initInboxBase(uint256 _chainId, address _mpcAbiReEncode) internal {
+        if (_initialized) revert AlreadyInitialized();
         _initialized = true;
         chainId = _chainId == 0 ? block.chainid : _chainId;
+        mpcAbiReEncode = _mpcAbiReEncode;
     }
 
     /// @inheritdoc IInbox
@@ -141,71 +181,50 @@ contract InboxBase is IInbox, InboxFeeManager {
 
     /// @inheritdoc IInbox
     function respond(bytes memory data) external {
-        ExecutionContext memory currentContext = _currentContext;
-        require(currentContext.requestId != bytes32(0), "Inbox: no active message");
-        require(currentContext.remoteChainId != 0, "Inbox: no active message");
-
-        bytes32 incomingRequestId = currentContext.requestId;
-        require(inboxResponses[incomingRequestId].responseRequestId == bytes32(0), "Inbox: reply already sent");
-
-        Request storage incomingRequest = incomingRequests[incomingRequestId];
-        require(incomingRequest.requestId != bytes32(0), "Inbox: request not found");
-        require(msg.sender == incomingRequest.targetContract, "Inbox: only target can reply");
-
-        MpcMethodCall memory responseMethodCall = MpcMethodCall({
-            selector: bytes4(0),
-            data: abi.encodeWithSelector(incomingRequest.callbackSelector, data),
-            datatypes: new bytes8[](0),
-            datalens: new bytes32[](0)
-        });
-
-        address originalSenderContract = incomingRequest.originalSender;
-        require(originalSenderContract != address(0), "Inbox: original sender not found");
-
-        bytes32 responseRequestId = _sendOneWayMessage(
-            currentContext.remoteChainId,
-            originalSenderContract,
-            responseMethodCall,
-            incomingRequest.errorSelector,
-            incomingRequestId,
-            incomingRequest.callerFee,
-            0,
-            msg.sender
-        );
-
-        inboxResponses[incomingRequestId] = Response({responseRequestId: responseRequestId, response: data});
-
-        emit ResponseReceived(incomingRequestId, data);
+        _reply(false, data);
     }
 
     /// @inheritdoc IInbox
     function raise(bytes memory data) external {
+        _reply(true, data);
+    }
+
+    /// @dev Shared respond/raise path. `isRaise` selects errorSelector vs callbackSelector.
+    function _reply(bool isRaise, bytes memory data) private {
         ExecutionContext memory currentContext = _currentContext;
-        require(currentContext.requestId != bytes32(0), "Inbox: no active message");
-        require(currentContext.remoteChainId != 0, "Inbox: no active message");
+        if (currentContext.requestId == bytes32(0) || currentContext.remoteChainId == 0) {
+            revert NoActiveMessage();
+        }
 
         bytes32 incomingRequestId = currentContext.requestId;
-        require(inboxResponses[incomingRequestId].responseRequestId == bytes32(0), "Inbox: reply already sent");
+        if (inboxResponses[incomingRequestId].responseRequestId != bytes32(0)) {
+            revert ReplyAlreadySent();
+        }
 
         Request storage incomingRequest = incomingRequests[incomingRequestId];
-        require(incomingRequest.requestId != bytes32(0), "Inbox: request not found");
-        require(msg.sender == incomingRequest.targetContract, "Inbox: only target can reply");
-        require(incomingRequest.errorSelector != bytes4(0), "Inbox: no error handler");
+        if (incomingRequest.requestId == bytes32(0)) revert RequestNotFound();
+        if (msg.sender != incomingRequest.targetContract) revert OnlyTargetCanReply();
+        if (isRaise && incomingRequest.errorSelector == bytes4(0)) revert NoErrorHandler();
 
-        MpcMethodCall memory errorMethodCall = MpcMethodCall({
+        bytes4 replySelector = isRaise ? incomingRequest.errorSelector : incomingRequest.callbackSelector;
+        MpcMethodCall memory replyMethodCall = MpcMethodCall({
             selector: bytes4(0),
-            data: abi.encodeWithSelector(incomingRequest.errorSelector, data),
+            data: abi.encodeWithSelector(replySelector, data),
             datatypes: new bytes8[](0),
             datalens: new bytes32[](0)
         });
+        _requireReplyMethodCallBounded(replyMethodCall);
 
         address originalSenderContract = incomingRequest.originalSender;
-        require(originalSenderContract != address(0), "Inbox: original sender not found");
+        if (originalSenderContract == address(0)) revert OriginalSenderNotFound();
 
+        if (_inEstimate) {
+            _estimateReplyKind = isRaise ? ESTIMATE_REPLY_ERROR : ESTIMATE_REPLY_RESPONSE;
+        }
         bytes32 outboundRequestId = _sendOneWayMessage(
             currentContext.remoteChainId,
             originalSenderContract,
-            errorMethodCall,
+            replyMethodCall,
             incomingRequest.errorSelector,
             incomingRequestId,
             incomingRequest.callerFee,
@@ -215,7 +234,10 @@ contract InboxBase is IInbox, InboxFeeManager {
 
         inboxResponses[incomingRequestId] = Response({responseRequestId: outboundRequestId, response: data});
 
-        emit RaiseReceived(incomingRequestId, data);
+        if (!_inEstimate) {
+            if (isRaise) emit RaiseReceived(incomingRequestId, data);
+            else emit ResponseReceived(incomingRequestId, data);
+        }
     }
 
     /// @inheritdoc IInbox
@@ -223,14 +245,14 @@ contract InboxBase is IInbox, InboxFeeManager {
     ///      first ≤{InboxMiner.MAX_ERROR_RETURN_DATA} bytes of returndata (POD-02). Decode in the client.
     function getOutboxError(bytes32 requestId) external view returns (uint256 code, bytes memory data) {
         Error memory err = errors[requestId];
-        require(err.requestId != bytes32(0), "Inbox: error not found");
+        if (err.requestId == bytes32(0)) revert ErrorNotFound();
         return (err.errorCode, err.errorMessage);
     }
 
     /// @inheritdoc IInbox
     function getInboxResponse(bytes32 requestId) external view returns (bytes memory) {
         Response memory response = inboxResponses[requestId];
-        require(response.responseRequestId != bytes32(0), "Inbox: response not found");
+        if (response.responseRequestId == bytes32(0)) revert ResponseNotFound();
         return response.response;
     }
 
@@ -283,21 +305,20 @@ contract InboxBase is IInbox, InboxFeeManager {
 
     /// @inheritdoc IInbox
     function inboxMsgSender() external view returns (uint256 chainId_, address contractAddress) {
-        require(_currentContext.remoteChainId != 0, "Inbox: no active message");
-        require(_currentContext.requestId != bytes32(0), "Inbox: no active message");
+        if (_currentContext.remoteChainId == 0 || _currentContext.requestId == bytes32(0)) revert NoActiveMessage();
 
         return (_currentContext.remoteChainId, _currentContext.remoteContract);
     }
 
     /// @inheritdoc IInbox
     function inboxRequestId() external view returns (bytes32) {
-        require(_currentContext.requestId != bytes32(0), "Inbox: no active message");
+        if (_currentContext.requestId == bytes32(0)) revert NoActiveMessage();
         return _currentContext.requestId;
     }
 
     /// @inheritdoc IInbox
     function inboxSourceRequestId() external view returns (bytes32) {
-        require(_currentContext.requestId != bytes32(0), "Inbox: no active message");
+        if (_currentContext.requestId == bytes32(0)) revert NoActiveMessage();
         return incomingRequests[_currentContext.requestId].sourceRequestId;
     }
 
@@ -349,12 +370,6 @@ contract InboxBase is IInbox, InboxFeeManager {
         returns (uint256 sourceChainId, uint256 targetChainId, uint256 nonce)
     {
         return _unpackRequestId(requestId);
-    }
-
-    /// @dev Exposed for try/catch around {_encodeMethodCall}; self-call only.
-    function _encodeMethodCallExternal(MpcMethodCall calldata methodCall) external returns (bytes memory) {
-        require(msg.sender == address(this), "Inbox: only self");
-        return _encodeMethodCall(methodCall);
     }
 
     /// @dev Creates a two-way outbound request.
@@ -421,9 +436,30 @@ contract InboxBase is IInbox, InboxFeeManager {
         uint256 callerFeeGas,
         address requestSender
     ) internal returns (bytes32) {
-        require(targetChainId != chainId, "Inbox: cannot send to same chain");
-        require(targetContract != address(0), "Inbox: invalid target contract");
-        require(requestSender != address(0), "Inbox: invalid request sender");
+        if (targetChainId == chainId) revert CannotSendToSameChain();
+        if (targetContract == address(0)) revert InvalidTargetContract();
+        if (requestSender == address(0)) revert InvalidRequestSender();
+
+        FeeConfig memory remoteMax = remoteMinFeeConfig;
+        uint256 weight = MinerRejectLib.structuralSize(methodCall);
+        if (weight > remoteMax.maxMethodCallBytes) {
+            revert MethodCallTooLarge(weight, remoteMax.maxMethodCallBytes);
+        }
+        if (targetFeeGas > remoteMax.maxExecutionGas) {
+            revert FeeGasTooHigh(targetFeeGas, remoteMax.maxExecutionGas);
+        }
+        if (callerFeeGas > localMinFeeConfig.maxExecutionGas) {
+            revert FeeGasTooHigh(callerFeeGas, localMinFeeConfig.maxExecutionGas);
+        }
+
+        if (_inEstimate && _estimateReplyKind != ESTIMATE_REPLY_NONE) {
+            if (_estimateReplyKind == ESTIMATE_REPLY_RESPONSE) {
+                _estimateResponseDataSize += weight;
+            } else {
+                _estimateErrorDataSize += weight;
+            }
+            _estimateReplyKind = ESTIMATE_REPLY_NONE;
+        }
 
         uint256 nonce = ++_requestNonce[targetChainId];
 
@@ -448,31 +484,45 @@ contract InboxBase is IInbox, InboxFeeManager {
 
         requests[requestId] = request;
 
-        (
-            bytes4 methodSelector,
-            bytes32 methodCallHash,
-            uint256 dataLength,
-            uint16 datatypeCount,
-            uint16 datalenCount
-        ) = _methodCallLogData(methodCall);
-        emit MessageSent(
-            requestId,
-            targetChainId,
-            targetContract,
-            methodSelector,
-            methodCallHash,
-            dataLength,
-            datatypeCount,
-            datalenCount,
-            callbackSelector,
-            errorSelector
-        );
+        if (!_inEstimate) {
+            (
+                bytes4 methodSelector,
+                bytes32 methodCallHash,
+                uint256 dataLength,
+                uint16 datatypeCount,
+                uint16 datalenCount
+            ) = _methodCallLogData(methodCall);
+            emit MessageSent(
+                requestId,
+                targetChainId,
+                targetContract,
+                methodSelector,
+                methodCallHash,
+                dataLength,
+                datatypeCount,
+                datalenCount,
+                callbackSelector,
+                errorSelector
+            );
+        }
         return requestId;
     }
 
     /// @dev Auto-deliver a system-error payload on the same `errorSelector(bytes)` path as {raise}.
     ///      Source handlers branch with {inboxErrorType()} ({SystemError} vs {Exception}).
     function _sendSystemErrorCallback(Request storage incomingRequest, bytes memory encodeErr) internal {
+        bytes memory errorMessage = encodeErr.length == 0
+            ? abi.encodePacked("enc")
+            : encodeErr;
+        _sendSystemErrorCallbackWithCode(incomingRequest, ERROR_CODE_ENCODE_FAILED, errorMessage);
+    }
+
+    /// @dev System-error return leg with an explicit error code (encode failure, miner reject, …).
+    function _sendSystemErrorCallbackWithCode(
+        Request storage incomingRequest,
+        uint64 errorCode,
+        bytes memory errorMessage
+    ) internal {
         if (incomingRequest.errorSelector == bytes4(0)) {
             return;
         }
@@ -485,10 +535,7 @@ contract InboxBase is IInbox, InboxFeeManager {
             return;
         }
 
-        bytes memory errorMessage = encodeErr.length == 0
-            ? abi.encodePacked("Inbox: encodeMethodCall failed")
-            : encodeErr;
-        bytes memory payload = abi.encode(ERROR_CODE_ENCODE_FAILED, errorMessage);
+        bytes memory payload = abi.encode(errorCode, errorMessage);
 
         MpcMethodCall memory errorMethodCall = MpcMethodCall({
             selector: bytes4(0),
@@ -497,6 +544,9 @@ contract InboxBase is IInbox, InboxFeeManager {
             datalens: new bytes32[](0)
         });
 
+        if (_inEstimate) {
+            _estimateReplyKind = ESTIMATE_REPLY_ERROR;
+        }
         // Attribute to {SYSTEM_SENDER}, not the intended COTI target (do not impersonate the peer).
         bytes32 outboundRequestId = _sendOneWayMessage(
             incomingRequest.targetChainId,
@@ -511,7 +561,18 @@ contract InboxBase is IInbox, InboxFeeManager {
 
         inboxResponses[incomingRequest.requestId] =
             Response({responseRequestId: outboundRequestId, response: payload});
-        emit SystemErrorRaised(incomingRequest.requestId, ERROR_CODE_ENCODE_FAILED, payload);
+        if (!_inEstimate) {
+            emit SystemErrorRaised(incomingRequest.requestId, errorCode, payload);
+        }
+    }
+
+    /// @dev Enforce {maxReplyMethodCallBytes} on respond/raise return legs.
+    function _requireReplyMethodCallBounded(MpcMethodCall memory methodCall) internal view {
+        uint256 weight = MinerRejectLib.structuralSize(methodCall);
+        uint256 maxBytes = maxReplyMethodCallBytes;
+        if (weight > maxBytes) {
+            revert ResponseOutOfBounds(weight, maxBytes);
+        }
     }
 
     /// @dev Compact log metadata for {MessageSent} and {MessageReceived}.
@@ -541,9 +602,9 @@ contract InboxBase is IInbox, InboxFeeManager {
         pure
         returns (bytes32)
     {
-        require(sourceChainId <= type(uint64).max, "Inbox: sourceChainId too large");
-        require(targetChainId <= type(uint64).max, "Inbox: targetChainId too large");
-        require(nonce <= type(uint128).max, "Inbox: nonce too large");
+        if (sourceChainId > type(uint64).max) revert SourceChainIdTooLarge();
+        if (targetChainId > type(uint64).max) revert TargetChainIdTooLarge();
+        if (nonce > type(uint128).max) revert NonceTooLarge();
         return bytes32(
             (uint256(uint64(sourceChainId)) << 192) | (uint256(uint64(targetChainId)) << 128)
                 | uint256(uint128(nonce))
@@ -562,22 +623,14 @@ contract InboxBase is IInbox, InboxFeeManager {
         nonce = uint256(uint128(packed));
     }
 
-    /// @dev Raw calldata passthrough if selector is zero; otherwise MPC re-encode via {MpcAbiCodec}.
+    /// @dev Raw calldata passthrough if selector is zero; otherwise DELEGATECALL {MpcAbiReEncode}.
     function _encodeMethodCall(MpcMethodCall memory methodCall) internal returns (bytes memory) {
         if (methodCall.selector == bytes4(0)) {
-            require(methodCall.datatypes.length == 0, "Inbox: raw call has datatypes");
-            require(methodCall.datalens.length == 0, "Inbox: raw call has datalens");
+            if (methodCall.datatypes.length != 0) revert RawCallHasDatatypes();
+            if (methodCall.datalens.length != 0) revert RawCallHasDatalens();
             return methodCall.data;
         }
-
-        IInbox.MpcMethodCall memory codecCall = IInbox.MpcMethodCall({
-            selector: methodCall.selector,
-            data: methodCall.data,
-            datatypes: methodCall.datatypes,
-            datalens: methodCall.datalens
-        });
-
-        return MpcAbiCodec.reEncodeWithGt(codecCall);
+        return _delegateReEncodeWithGt(methodCall);
     }
 
     /// @dev Non-reverting encode wrapper for inbound execution.
@@ -587,24 +640,44 @@ contract InboxBase is IInbox, InboxFeeManager {
     {
         if (methodCall.selector == bytes4(0)) {
             if (methodCall.datatypes.length != 0) {
-                return (false, new bytes(0), abi.encodeWithSignature("Error(string)", "Inbox: raw call has datatypes"));
+                return (false, new bytes(0), abi.encodeWithSignature("Error(string)", "dt"));
             }
             if (methodCall.datalens.length != 0) {
-                return (false, new bytes(0), abi.encodeWithSignature("Error(string)", "Inbox: raw call has datalens"));
+                return (false, new bytes(0), abi.encodeWithSignature("Error(string)", "dl"));
             }
             return (true, methodCall.data, new bytes(0));
         }
-        try this._encodeMethodCallExternal(methodCall) returns (bytes memory data) {
-            return (true, data, new bytes(0));
-        } catch (bytes memory reason) {
-            return (false, new bytes(0), reason);
+        address target = mpcAbiReEncode;
+        if (target == address(0)) {
+            return (false, new bytes(0), abi.encodeWithSelector(MpcAbiReEncodeRequired.selector));
         }
+        (bool success, bytes memory ret) = target.delegatecall(
+            abi.encodeWithSelector(MpcAbiReEncode.reEncodeWithGt.selector, methodCall)
+        );
+        if (!success) {
+            return (false, new bytes(0), ret);
+        }
+        return (true, abi.decode(ret, (bytes)), new bytes(0));
+    }
+
+    function _delegateReEncodeWithGt(MpcMethodCall memory methodCall) private returns (bytes memory) {
+        address target = mpcAbiReEncode;
+        if (target == address(0)) revert MpcAbiReEncodeRequired();
+        (bool success, bytes memory ret) = target.delegatecall(
+            abi.encodeWithSelector(MpcAbiReEncode.reEncodeWithGt.selector, methodCall)
+        );
+        if (!success) {
+            assembly {
+                revert(add(ret, 32), mload(ret))
+            }
+        }
+        return abi.decode(ret, (bytes));
     }
 
     /// @dev Records an encode failure and emits {ErrorReceived}.
     function _recordEncodeError(bytes32 requestId, bytes memory encodeErr) internal {
         bytes memory errorMessage = encodeErr.length == 0
-            ? abi.encodePacked("Inbox: encodeMethodCall failed")
+            ? abi.encodePacked("enc")
             : encodeErr;
         Error memory err = Error({
             requestId: requestId,
@@ -612,6 +685,8 @@ contract InboxBase is IInbox, InboxFeeManager {
             errorMessage: errorMessage
         });
         errors[requestId] = err;
-        emit ErrorReceived(requestId, ERROR_CODE_ENCODE_FAILED, errorMessage);
+        if (!_inEstimate) {
+            emit ErrorReceived(requestId, ERROR_CODE_ENCODE_FAILED, errorMessage);
+        }
     }
 }

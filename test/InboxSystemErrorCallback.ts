@@ -7,6 +7,7 @@ import {
 } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
+import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
@@ -23,6 +24,10 @@ const CONSTANT_FEE = {
   callbackExecutionGas: 0n,
   errorLength: 0n,
   bufferRatioX10000: 0n,
+  maxMethodCallBytes: 8192n,
+  maxExecutionGas: 5_000_000n,
+  gasPriceMul: 1n,
+  gasPriceDiv: 1n,
 } as const;
 
 const ERROR_CODE_ENCODE_FAILED = 2n;
@@ -34,10 +39,10 @@ describe("Inbox system-error callback", { concurrency: false, timeout: 600_000 }
     const [wallet] = await viem.getWalletClients();
     const deployer = wallet.account.address as `0x${string}`;
 
-    const source = await viem.deployContract("Inbox", [], {
+    const source = await deployLinkedInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await source.write.init([deployer, SOURCE_CHAIN_ID], { account: deployer });
+    await source.write.init([deployer, SOURCE_CHAIN_ID, mpcAbiReEncodeOf(source)], { account: deployer });
     await source.write.updateMinFeeConfigs([{ ...CONSTANT_FEE }, { ...CONSTANT_FEE }], {
       account: deployer,
     });
@@ -52,10 +57,10 @@ describe("Inbox system-error callback", { concurrency: false, timeout: 600_000 }
     await oracle.write.setRemoteTokenPriceUSD([PRICE_SCALE_18], { account: deployer });
     await source.write.setPriceOracle([oracle.address], { account: deployer });
 
-    const target = await viem.deployContract("Inbox", [], {
+    const target = await deployLinkedInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await target.write.init([deployer, TARGET_CHAIN_ID], { account: deployer });
+    await target.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(target)], { account: deployer });
     await target.write.updateMinFeeConfigs([{ ...CONSTANT_FEE }, { ...CONSTANT_FEE }], {
       account: deployer,
     });

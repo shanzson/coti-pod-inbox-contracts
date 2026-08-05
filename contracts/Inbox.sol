@@ -16,15 +16,16 @@ contract Inbox is InboxMiner, Initializable {
     /// @dev Placeholder owner until {init}; fixed address keeps creation bytecode identical on every chain.
     constructor() Ownable(address(1)) {}
 
-    /// @notice One-time initializer: sets `chainId` and the owner.
+    /// @notice One-time initializer: sets `chainId`, owner, and optional MPC re-encode helper.
     /// @dev Intended to run atomically inside CreateX `deployCreate3AndInit` (no front-run window).
     /// @param initialOwner Address that becomes the {Ownable} owner (typically the deployer EOA).
     /// @param _chainId This chain's ID; pass `0` to use `block.chainid`.
-    function init(address initialOwner, uint256 _chainId) external initializer {
+    /// @param _mpcAbiReEncode COTI {MpcAbiReEncode} address, or `address(0)` on non-MPC chains.
+    function init(address initialOwner, uint256 _chainId, address _mpcAbiReEncode) external initializer {
         if (initialOwner == address(0)) {
             revert OwnableInvalidOwner(initialOwner);
         }
-        _initInboxBase(_chainId);
+        _initInboxBase(_chainId, _mpcAbiReEncode);
         _transferOwnership(initialOwner);
     }
 }

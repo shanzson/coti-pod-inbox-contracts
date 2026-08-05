@@ -26,8 +26,30 @@ export const CREATEX_ADDRESS = getAddress("0xba5Ed099633D3B313e4D5F7bdc1305d3c28
  */
 export const INBOX_SALT_LABEL = "pod.inbox.v2.0";
 
-/** Minimal CreateX ABI: CREATE3 deploy-and-init plus the address precompute view. */
+/**
+ * Salt label for the linked {MpcAbiCodec} library. Must be CREATE3-deployed to the same address
+ * on every chain before Inbox bytecode is linked, otherwise Inbox initCode differs per chain.
+ */
+export const MPC_ABI_CODEC_SALT_LABEL = "pod.mpc-abi-codec.v1.0";
+
+/** Salt label for CREATE3 {MpcAbiReEncode} contract (COTI DELEGATECALL target). */
+export const MPC_ABI_REENCODE_SALT_LABEL = "pod.mpc-abi-reencode.v1.0";
+
+/** @deprecated Call helper is inlined; retained for older scripts. */
+export const INBOX_CALL_LIB_SALT_LABEL = "pod.inbox-call-lib.v1.0";
+
+/** Minimal CreateX ABI: CREATE3 deploy (+ optional init) plus the address precompute view. */
 export const CREATEX_ABI = [
+  {
+    type: "function",
+    name: "deployCreate3",
+    stateMutability: "payable",
+    inputs: [
+      { name: "salt", type: "bytes32" },
+      { name: "initCode", type: "bytes" },
+    ],
+    outputs: [{ name: "newContract", type: "address" }],
+  },
   {
     type: "function",
     name: "deployCreate3AndInit",
@@ -133,6 +155,11 @@ export type DeployInboxDeterministicParams = {
   artifact: InboxArtifact;
   /** Salt label driving the deterministic address family; defaults to {INBOX_SALT_LABEL}. */
   saltLabel?: string;
+  /**
+   * {MpcAbiReEncode} address for Inbox.init (COTI). Pass zero address on non-MPC chains.
+   * Defaults to zero address when omitted.
+   */
+  mpcAbiReEncode?: Address;
 };
 
 export type DeployInboxDeterministicResult = {
@@ -144,17 +171,24 @@ export type DeployInboxDeterministicResult = {
   alreadyDeployed: boolean;
 };
 
+export type DeployCreate3Params = {
+  publicClient: PublicClient;
+  walletClient: WalletClient;
+  deployer: Address;
+  /** Fully linked creation bytecode (no Solidity library placeholders). */
+  bytecode: Hex;
+  /** Salt label; defaults to {INBOX_SALT_LABEL} when omitted. */
+  saltLabel?: string;
+};
+
 /**
- * Deterministically deploy the Inbox via CreateX `deployCreate3AndInit`, calling
- * {Inbox.init}(deployer, chainId) atomically in the same transaction.
- *
- * Network discipline: precomputes the address and checks for existing code first; simulates the
- * deploy via `eth_call` before sending; sends exactly one transaction (or none if already deployed).
+ * Deterministically deploy arbitrary initCode via CreateX `deployCreate3` (no post-deploy init call).
+ * Used for libraries such as {MpcAbiCodec} that have no initializer.
  */
-export const deployInboxDeterministic = async (
-  params: DeployInboxDeterministicParams
+export const deployCreate3Deterministic = async (
+  params: DeployCreate3Params
 ): Promise<DeployInboxDeterministicResult> => {
-  const { publicClient, walletClient, deployer, chainId, artifact, saltLabel } = params;
+  const { publicClient, walletClient, deployer, bytecode, saltLabel } = params;
 
   if (!(await isCreateXAvailable(publicClient))) {
     throw new Error(
@@ -169,10 +203,65 @@ export const deployInboxDeterministic = async (
     return { address: predictedAddress, predictedAddress, alreadyDeployed: true };
   }
 
+  const { request, result } = await publicClient.simulateContract({
+    account: deployer,
+    address: CREATEX_ADDRESS,
+    abi: CREATEX_ABI,
+    functionName: "deployCreate3",
+    args: [salt, bytecode],
+  });
+
+  const simulated = getAddress(result as Address);
+  if (simulated !== predictedAddress) {
+    throw new Error(
+      `CreateX address mismatch: precomputed ${predictedAddress} but simulation returned ${simulated}`
+    );
+  }
+
+  const txHash = await walletClient.writeContract(request);
+  await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: 300_000, pollingInterval: 2_000 });
+
+  return { address: predictedAddress, predictedAddress, txHash, alreadyDeployed: false };
+};
+
+/**
+ * Deterministically deploy the Inbox via CreateX `deployCreate3AndInit`, calling
+ * {Inbox.init}(deployer, chainId) atomically in the same transaction.
+ *
+ * Network discipline: precomputes the address and checks for existing code first; simulates the
+ * deploy via `eth_call` before sending; sends exactly one transaction (or none if already deployed).
+ *
+ * Caller must pass fully linked Inbox bytecode (no unresolved library placeholders).
+ */
+export const deployInboxDeterministic = async (
+  params: DeployInboxDeterministicParams
+): Promise<DeployInboxDeterministicResult> => {
+  const { publicClient, walletClient, deployer, chainId, artifact, saltLabel, mpcAbiReEncode } =
+    params;
+
+  if (!(await isCreateXAvailable(publicClient))) {
+    throw new Error(
+      `CreateX not found at ${CREATEX_ADDRESS} on this chain; cannot deploy deterministically.`
+    );
+  }
+
+  if (artifact.bytecode.includes("_")) {
+    throw new Error(
+      "deployInboxDeterministic: Inbox bytecode still has library placeholders"
+    );
+  }
+
+  const salt = buildInboxSalt(deployer, saltLabel);
+  const predictedAddress = await precomputeCreate3Address(publicClient, deployer, salt);
+
+  if (await isContractDeployed(publicClient, predictedAddress)) {
+    return { address: predictedAddress, predictedAddress, alreadyDeployed: true };
+  }
+
   const initData = encodeFunctionData({
     abi: artifact.abi,
     functionName: "init",
-    args: [deployer, chainId],
+    args: [deployer, chainId, mpcAbiReEncode ?? ("0x0000000000000000000000000000000000000000" as Address)],
   });
 
   // Simulate first (read-only): catches reverts and confirms the returned address matches.

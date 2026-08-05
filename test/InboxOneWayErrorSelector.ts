@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
+import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 const TARGET_CHAIN_ID = 1001n;
@@ -15,6 +16,10 @@ const CONSTANT_FEE = {
   callbackExecutionGas: 0n,
   errorLength: 0n,
   bufferRatioX10000: 0n,
+  maxMethodCallBytes: 8192n,
+  maxExecutionGas: 5_000_000n,
+  gasPriceMul: 1n,
+  gasPriceDiv: 1n,
 } as const;
 
 const minimalMethodCall = () => ({
@@ -31,10 +36,10 @@ describe("Inbox one-way errorSelector", { concurrency: false, timeout: 600_000 }
     const [wallet] = await viem.getWalletClients();
     const deployer = wallet.account.address as `0x${string}`;
 
-    const inbox = await viem.deployContract("Inbox", [], {
+    const inbox = await deployLinkedInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await inbox.write.init([deployer, 1000n], { account: deployer });
+    await inbox.write.init([deployer, 1000n, mpcAbiReEncodeOf(inbox)], { account: deployer });
     await inbox.write.updateMinFeeConfigs([{ ...CONSTANT_FEE }, { ...CONSTANT_FEE }], {
       account: deployer,
     });
