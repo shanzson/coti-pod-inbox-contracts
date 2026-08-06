@@ -33,13 +33,6 @@ abstract contract InboxFeeManager {
         uint16 gasPriceDiv;
     }
 
-    /// @notice Default max method-call payload weight (bytes).
-    uint32 public constant DEFAULT_MAX_METHOD_CALL_BYTES = 8192;
-    /// @notice Default max execution gas-unit budget.
-    uint32 public constant DEFAULT_MAX_EXECUTION_GAS = 5_000_000;
-    /// @notice Default max reply/raise payload weight (bytes).
-    uint32 public constant DEFAULT_MAX_REPLY_METHOD_CALL_BYTES = 8192;
-
     /// @notice Oracle used to convert gas budgets between local and remote fee tokens.
     PriceOracle public priceOracle;
 
@@ -51,7 +44,7 @@ abstract contract InboxFeeManager {
 
     /// @notice Max payload weight for {respond}/{raise} return legs (admin-settable).
     /// @dev Same payload-weight units as {FeeConfig.maxMethodCallBytes}; keep ≤ peer ingest max. Single `uint32` slot.
-    uint32 public maxReplyMethodCallBytes = DEFAULT_MAX_REPLY_METHOD_CALL_BYTES;
+    uint32 public maxReplyMethodCallBytes = 8192;
 
     /// @notice Fallback gas price (wei) when `tx.gasprice == 0` and no basefee path applies.
     uint256 public constant DEFAULT_GAS_PRICE = 2_000_000_000 wei;
@@ -188,7 +181,7 @@ abstract contract InboxFeeManager {
 
     /// @dev Constant-fee templates may zero variable fields; max size/gas are always required.
     ///      When `constantFee > 0`, `maxExecutionGas` must be ≥ `constantFee` or no request can admit.
-    ///      `gasPriceMul` / `gasPriceDiv` must both be non-zero (H-02).
+    ///      `gasPriceMul` / `gasPriceDiv` must both be non-zero.
     function _requireValidFeeConfig(FeeConfig memory feeConfig) private pure {
         if (feeConfig.maxMethodCallBytes == 0 || feeConfig.maxExecutionGas == 0) {
             revert FeeConfigInvalid(feeConfig);
@@ -210,7 +203,7 @@ abstract contract InboxFeeManager {
         }
     }
 
-    /// @dev Apply H-02 gas-price skew: `units * mul / div` (configs already in memory — no extra SLOAD).
+    /// @dev Apply gas-price skew: `units * mul / div` (configs already in memory — no extra SLOAD).
     function _applyGasPriceSkew(uint256 gasUnits, FeeConfig memory feeConfig) private pure returns (uint256) {
         return Math.mulDiv(gasUnits, uint256(feeConfig.gasPriceMul), uint256(feeConfig.gasPriceDiv));
     }
@@ -322,7 +315,7 @@ abstract contract InboxFeeManager {
         (uint256 localTokenPrice, uint256 remoteTokenPrice) = _validatedOraclePrices();
         FeeConfig memory remoteMin = remoteMinFeeConfig;
         FeeConfig memory localMin = localMinFeeConfig;
-        // Inverse H-02: quote assumes remote gas units; convert to local-priced gas then wei.
+        // Inverse gas-price skew: quote assumes remote gas units; convert to local-priced gas then wei.
         uint256 targetGasRemoteUnits = expectedMinFee(remoteMethodCallSize, remoteMin) + remoteMethodExecutionGas;
         uint256 callerGasLocalUnits = expectedMinFee(callBackMethodCallSize, localMin) + callBackMethodExecutionGas;
         targetGasRemoteUnits = _applyGasPriceSkewInverse(targetGasRemoteUnits, remoteMin);

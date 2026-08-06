@@ -1,4 +1,7 @@
-# C-01: Size caps, reply max, and in-batch miner reject
+# Size caps, reply max, and in-batch miner reject
+
+**Audience:** Inbox operators / deployers.  
+**User-facing overview** (payload weight, defaults, app checklist): [how-poa-fees-work.md — Maximum method-call size](https://github.com/coti-io/documentation/blob/main/privacy-on-demand/how-poa-fees-work.md#maximum-method-call-size-apps-must-respect-this).
 
 ## Payload weight (admission metric)
 

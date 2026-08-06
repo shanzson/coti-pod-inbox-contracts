@@ -4,25 +4,28 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import "@coti-io/coti-contracts/contracts/pod/IInboxMiner.sol";
-import "./InboxBase.sol";
+import "./InboxEstimateGas.sol";
 import "./MinerBase.sol";
 import "./lib/MinerRejectLib.sol";
 
 /// @title InboxMiner
 /// @notice Miner-driven inbox: ingest mined payloads, execute targets, and collect fees.
-abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGuard {
+/// @dev Inherits {InboxEstimateGas} for {estimateExecutionGasForMiner} and estimate-mode hooks.
+abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, ReentrancyGuard {
     error NoncesNotContiguous();
     error RequestAlreadyProcessed();
-    error InvalidSourceContract();
 
     using MinerRejectLib for IInbox.MpcMethodCall;
     /// @notice Max bytes of target returndata retained on failure (prefix only).
     /// @dev Full payload is hashed; storing unbounded returndata can OOG the miner tx and wedge the
-    ///      contiguous incoming-nonce queue (POD-02).
+    ///      contiguous incoming-nonce queue.
     uint256 public constant MAX_ERROR_RETURN_DATA = 256;
 
     /// @notice Gas reserved after the target subcall so failure accounting can always commit.
     uint256 private constant POST_CALL_GAS_RESERVE = 100_000;
+
+    /// @notice Gas reserved after an estimate subcall so {ExecutionGasEstimate} can always encode.
+    uint256 private constant ESTIMATE_OUTER_RESERVE = 150_000;
 
     /// @notice When true, {batchProcessRequests} and {retryFailedRequest} revert (circuit breaker).
     bool public messageProcessingPaused;
@@ -262,89 +265,29 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
         _setMaxReplyMethodCallBytes(maxBytes);
     }
 
-    /// @notice Gas reserved after the estimate subcall so we can always encode {ExecutionGasEstimate}.
-    uint256 private constant ESTIMATE_OUTER_RESERVE = 150_000;
-
     enum IncomingExecKind {
         Mine,
         Estimate,
         Retry
     }
 
+    /// @inheritdoc InboxEstimateGas
+    function _runEstimateIncomingExecution(
+        Request storage incomingRequest,
+        uint256 sourceChainId,
+        uint256 maxUserGas
+    ) internal override returns (uint256 gasUsed) {
+        return _runIncomingExecution(incomingRequest, sourceChainId, IncomingExecKind.Estimate, maxUserGas);
+    }
+
     /// @inheritdoc IInboxMiner
+    /// @dev Body in {InboxEstimateGas._estimateExecutionGasForMiner}.
     function estimateExecutionGasForMiner(
         uint256 sourceChainId,
         MinedRequest calldata mined,
         uint256 maxUserGas
-    ) external {
-        if (_inEstimate || _currentContext.requestId != bytes32(0)) {
-            revert EstimateBusy();
-        }
-        if (sourceChainId == chainId) {
-            revert SourceChainIsThisChain(chainId);
-        }
-
-        bytes32 requestId = mined.requestId;
-        (uint256 minedChainId, uint256 minedTargetChainId,) = _unpackRequestId(requestId);
-        if (minedChainId != sourceChainId) {
-            revert RequestSourceChainMismatch(requestId, sourceChainId, minedChainId);
-        }
-        if (minedTargetChainId != chainId) {
-            revert RequestTargetChainMismatch(requestId, chainId, minedTargetChainId);
-        }
-        if (mined.sourceContract == address(0)) revert InvalidSourceContract();
-        if (mined.targetContract == address(0)) revert InvalidTargetContract();
-
-        (bool isReject,,) = MinerRejectLib.parse(mined.methodCall);
-        if (isReject) {
-            revert EstimateRejectNotExecutable();
-        }
-
-        FeeConfig memory localCaps = localMinFeeConfig;
-        uint256 weight = MinerRejectLib.structuralSize(mined.methodCall);
-        if (weight > localCaps.maxMethodCallBytes) {
-            revert MethodCallTooLarge(weight, localCaps.maxMethodCallBytes);
-        }
-        if (mined.targetFee > localCaps.maxExecutionGas) {
-            revert FeeGasTooHigh(mined.targetFee, localCaps.maxExecutionGas);
-        }
-        if (mined.callerFee > localCaps.maxExecutionGas) {
-            revert FeeGasTooHigh(mined.callerFee, localCaps.maxExecutionGas);
-        }
-
-        _inEstimate = true;
-        _estimateReplyKind = ESTIMATE_REPLY_NONE;
-        _estimateResponseDataSize = 0;
-        _estimateErrorDataSize = 0;
-
-        incomingRequests[requestId] = Request({
-            requestId: requestId,
-            targetChainId: sourceChainId,
-            targetContract: mined.targetContract,
-            methodCall: mined.methodCall,
-            callerContract: mined.sourceContract,
-            originalSender: mined.sourceContract,
-            timestamp: uint64(block.timestamp),
-            callbackSelector: mined.callbackSelector,
-            errorSelector: mined.errorSelector,
-            isTwoWay: mined.isTwoWay,
-            executed: false,
-            sourceRequestId: mined.sourceRequestId,
-            targetFee: mined.targetFee,
-            callerFee: mined.callerFee
-        });
-
-        uint256 gasUsed = _runIncomingExecution(
-            incomingRequests[requestId],
-            sourceChainId,
-            IncomingExecKind.Estimate,
-            maxUserGas
-        );
-
-        uint256 responseDataSize = _estimateResponseDataSize;
-        uint256 errorDataSize = _estimateErrorDataSize;
-        _inEstimate = false;
-        revert ExecutionGasEstimate(gasUsed, responseDataSize, errorDataSize);
+    ) external override {
+        _estimateExecutionGasForMiner(sourceChainId, mined, maxUserGas);
     }
 
     /// @inheritdoc IInboxMiner
@@ -395,7 +338,7 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
 
         if (!encodedOk) {
             if (kind == IncomingExecKind.Retry) {
-                // Preserve ERROR_CODE_EXECUTION_FAILED so retry stays eligible (POD-04).
+                // Preserve ERROR_CODE_EXECUTION_FAILED so retry stays eligible.
                 _clearExecutionContext();
                 revert RetryFailedRequestEncodeFailed(encodeErr);
             }
@@ -432,7 +375,7 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
         }
 
         uint256 gasRemainingApprox = targetGasBudget > gasUsed ? targetGasBudget - gasUsed : 0;
-        if (!_inEstimate) {
+        if (_shouldEmit()) {
             emit FeeExecutionSettled(incomingRequest.requestId, gasUsed, gasRemainingApprox);
         }
 
@@ -446,7 +389,7 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
                 errorCode: ERROR_CODE_EXECUTION_FAILED,
                 errorMessage: returnData
             });
-            if (!_inEstimate) {
+            if (_shouldEmit()) {
                 emit ErrorReceived(rid, ERROR_CODE_EXECUTION_FAILED, returnData);
             }
         }
@@ -477,7 +420,7 @@ abstract contract InboxMiner is InboxBase, MinerBase, IInboxMiner, ReentrancyGua
     }
 
     /// @dev Low-level call that never retains more than {MAX_ERROR_RETURN_DATA} bytes of returndata.
-    ///      On failure, `returnData` is the first ≤256 bytes of returndata (POD-02).
+    ///      On failure, `returnData` is the first ≤256 bytes of returndata.
     function _callWithCappedReturnData(address target, uint256 gasBudget, bytes memory callData)
         private
         returns (bool success, bytes memory returnData)

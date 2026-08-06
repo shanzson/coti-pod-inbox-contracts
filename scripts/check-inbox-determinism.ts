@@ -30,12 +30,19 @@ const main = async () => {
   );
 
   const deployer = await resolveDeployerAddress(walletClient);
-  const salt = buildInboxSalt(deployer);
+  const saltLabel = process.env.INBOX_SALT_LABEL?.trim();
+  if (!saltLabel) {
+    throw new Error(
+      "Set INBOX_SALT_LABEL to deployConfig.inboxSalt.label (no hardcoded salt labels in scripts)"
+    );
+  }
+  const salt = buildInboxSalt(deployer, saltLabel);
   const guardedSalt = computeGuardedSalt(deployer, salt);
   const predicted = await precomputeCreate3Address(publicClient, deployer, salt);
 
   console.log(`[check-determinism] network=${chainName} chainId=${chainId}`);
   console.log(`[check-determinism] deployer=${deployer}`);
+  console.log(`[check-determinism] saltLabel=${saltLabel}`);
   console.log(`[check-determinism] salt=${salt}`);
   console.log(`[check-determinism] guardedSalt=${guardedSalt}`);
   console.log(`[check-determinism] predicted Inbox address=${predicted}`);
@@ -59,7 +66,7 @@ const main = async () => {
   const initData = encodeFunctionData({
     abi: artifact.abi,
     functionName: "init",
-    args: [deployer, 0n],
+    args: [deployer, 0n, "0x0000000000000000000000000000000000000000"],
   });
 
   const { result } = await publicClient.simulateContract({

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
+import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
 
 /**
  * Regression test for per-target request isolation (>2 chains).
@@ -61,7 +61,7 @@ describe("Inbox per-target request isolation (>2 chains)", { concurrency: false,
     withOracle: boolean
   ) => {
     const { viem, publicClient, wallet, deployer } = env;
-    const inbox = await deployLinkedInbox(viem, { client: { public: publicClient, wallet } });
+    const inbox = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
     await inbox.write.init([deployer, chainId, mpcAbiReEncodeOf(inbox)], { account: deployer });
     if (withOracle) {
       const oracle = await viem.deployContract("PriceOracle", [deployer], {

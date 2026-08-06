@@ -8,7 +8,7 @@ import {
 } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
+import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
@@ -57,7 +57,7 @@ const deployHarness = async (): Promise<Harness> => {
   const [wallet] = await viem.getWalletClients();
   const deployer = wallet.account.address as `0x${string}`;
 
-  const inbox = await deployLinkedInbox(viem, {
+  const inbox = await deployTestInbox(viem, {
     client: { public: publicClient, wallet },
   });
   await inbox.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(inbox)], { account: deployer });

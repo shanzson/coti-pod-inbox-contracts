@@ -1,23 +1,12 @@
 /**
- * Deploy Inbox with a storage-free {MpcAbiReEncode} helper (DELEGATECALL target).
- * Hardhat / EDR path for unit tests and local scripts (no CreateX).
+ * Deploy Inbox + {MpcAbiReEncode} for Hardhat / EDR unit tests (no CreateX).
+ * Not a solc "library link" — re-encode is a normal CREATE contract passed into Inbox.init.
  */
-
-type PublicLike = {
-  waitForTransactionReceipt: (args: { hash: `0x${string}` }) => Promise<{
-    contractAddress?: `0x${string}` | null;
-    status: string;
-  }>;
-};
-
-type WalletLike = {
-  account?: { address: `0x${string}` };
-};
 
 type DeployOpts = Record<string, unknown> & {
   client?: {
-    public?: PublicLike;
-    wallet?: WalletLike;
+    public?: unknown;
+    wallet?: { account?: { address: `0x${string}` } };
   };
 };
 
@@ -28,7 +17,7 @@ type ViemLike = {
 const codecByKey = new WeakMap<object, Promise<`0x${string}`>>();
 
 /** Deploy (or reuse) {MpcAbiReEncode}, then deploy Inbox. */
-export const deployLinkedInbox = async (
+export const deployTestInbox = async (
   viem: ViemLike,
   opts?: DeployOpts
 ): Promise<any & { mpcAbiReEncode: `0x${string}` }> => {
@@ -50,9 +39,9 @@ export const deployLinkedInbox = async (
   return inbox as any;
 };
 
-/** Address of the shared test {MpcAbiReEncode} for a prior {deployLinkedInbox} call. */
+/** Address of the shared test {MpcAbiReEncode} for a prior {deployTestInbox} call. */
 export const mpcAbiReEncodeOf = (inbox: { mpcAbiReEncode?: `0x${string}` }): `0x${string}` => {
   const addr = inbox.mpcAbiReEncode;
-  if (!addr) throw new Error("mpcAbiReEncodeOf: missing address (deploy via deployLinkedInbox)");
+  if (!addr) throw new Error("mpcAbiReEncodeOf: missing address (deploy via deployTestInbox)");
   return addr;
 };

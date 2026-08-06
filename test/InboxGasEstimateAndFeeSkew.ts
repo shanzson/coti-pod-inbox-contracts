@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { decodeErrorResult, encodeFunctionData, toHex } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
+import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
 
 const SOURCE_CHAIN_ID = 1000n;
 const TARGET_CHAIN_ID = 1001n;
@@ -52,12 +52,12 @@ describe("estimateExecutionGasForMiner and gasPriceMul/Div", {
     const env = await connect();
     const { viem, publicClient, wallet, deployer } = env;
 
-    const source = await deployLinkedInbox(viem, { client: { public: publicClient, wallet } });
+    const source = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
     await source.write.init([deployer, SOURCE_CHAIN_ID, mpcAbiReEncodeOf(source)], { account: deployer });
     await source.write.updateMinFeeConfigs([{ ...FEE }, { ...FEE }], { account: deployer });
     await source.write.addMiner([deployer], { account: deployer });
 
-    const target = await deployLinkedInbox(viem, { client: { public: publicClient, wallet } });
+    const target = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
     await target.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(target)], { account: deployer });
     await target.write.updateMinFeeConfigs([{ ...FEE }, { ...FEE }], { account: deployer });
     await target.write.addMiner([deployer], { account: deployer });
@@ -106,7 +106,7 @@ describe("estimateExecutionGasForMiner and gasPriceMul/Div", {
       args: ["0x"],
     });
 
-  it("gasPriceMul=2 doubles remote targetFee; mul=0 is rejected", async () => {
+  it("gasPriceMul/Div: exact targetFee and callerFee for remote and local skew", async () => {
     const { source, deployer, publicClient } = await deployPair();
     const methodCall = {
       selector: "0x00000000" as const,
@@ -116,29 +116,50 @@ describe("estimateExecutionGasForMiner and gasPriceMul/Div", {
     };
     const callback = "0x12345678" as `0x${string}`;
     const errSel = "0x87654321" as `0x${string}`;
+    const totalWei = SEND_VALUE_WEI;
+    const callbackWei = SEND_VALUE_WEI / 2n;
 
-    const hash1 = await source.write.sendTwoWayMessage(
-      [TARGET_CHAIN_ID, deployer, methodCall, callback, errSel, SEND_VALUE_WEI / 2n],
-      { account: deployer, value: SEND_VALUE_WEI, gasPrice: GAS_PRICE_WEI }
-    );
-    await publicClient.waitForTransactionReceipt({ hash: hash1 });
-    const id1 = packRequestId(SOURCE_CHAIN_ID, TARGET_CHAIN_ID, 1n);
-    const req1 = await source.read.requests([id1]);
-    const baseTarget = BigInt((req1 as any).targetFee ?? (req1 as any)[12]);
+    const expected = (localMul: bigint, localDiv: bigint, remoteMul: bigint, remoteDiv: bigint) => {
+      const callerBase = callbackWei / GAS_PRICE_WEI;
+      const remoteBase = (totalWei - callbackWei) / GAS_PRICE_WEI;
+      return {
+        callerFee: (callerBase * localMul) / localDiv,
+        targetFee: (remoteBase * remoteMul) / remoteDiv,
+      };
+    };
 
-    await source.write.updateMinFeeConfigs(
-      [{ ...FEE }, { ...FEE, gasPriceMul: 2n, gasPriceDiv: 1n }],
-      { account: deployer }
-    );
-    const hash2 = await source.write.sendTwoWayMessage(
-      [TARGET_CHAIN_ID, deployer, methodCall, callback, errSel, SEND_VALUE_WEI / 2n],
-      { account: deployer, value: SEND_VALUE_WEI, gasPrice: GAS_PRICE_WEI }
-    );
-    await publicClient.waitForTransactionReceipt({ hash: hash2 });
-    const id2 = packRequestId(SOURCE_CHAIN_ID, TARGET_CHAIN_ID, 2n);
-    const req2 = await source.read.requests([id2]);
-    const skewed = BigInt((req2 as any).targetFee ?? (req2 as any)[12]);
-    assert.equal(skewed, baseTarget * 2n);
+    const cases = [
+      { name: "baseline", localMul: 1n, localDiv: 1n, remoteMul: 1n, remoteDiv: 1n },
+      { name: "target higher", localMul: 1n, localDiv: 1n, remoteMul: 2n, remoteDiv: 1n },
+      { name: "target lower", localMul: 1n, localDiv: 1n, remoteMul: 1n, remoteDiv: 2n },
+      { name: "callback higher", localMul: 2n, localDiv: 1n, remoteMul: 1n, remoteDiv: 1n },
+      { name: "callback lower", localMul: 1n, localDiv: 2n, remoteMul: 1n, remoteDiv: 1n },
+      { name: "both skewed", localMul: 2n, localDiv: 3n, remoteMul: 3n, remoteDiv: 2n },
+    ] as const;
+
+    let nonce = 0n;
+    for (const c of cases) {
+      await source.write.updateMinFeeConfigs(
+        [
+          { ...FEE, gasPriceMul: c.localMul, gasPriceDiv: c.localDiv },
+          { ...FEE, gasPriceMul: c.remoteMul, gasPriceDiv: c.remoteDiv },
+        ],
+        { account: deployer }
+      );
+      const hash = await source.write.sendTwoWayMessage(
+        [TARGET_CHAIN_ID, deployer, methodCall, callback, errSel, callbackWei],
+        { account: deployer, value: totalWei, gasPrice: GAS_PRICE_WEI }
+      );
+      await publicClient.waitForTransactionReceipt({ hash });
+      nonce += 1n;
+      const id = packRequestId(SOURCE_CHAIN_ID, TARGET_CHAIN_ID, nonce);
+      const req = await source.read.requests([id]);
+      const targetFee = BigInt((req as any).targetFee ?? (req as any)[12]);
+      const callerFee = BigInt((req as any).callerFee ?? (req as any)[13]);
+      const exp = expected(c.localMul, c.localDiv, c.remoteMul, c.remoteDiv);
+      assert.equal(targetFee, exp.targetFee, `${c.name}: targetFee`);
+      assert.equal(callerFee, exp.callerFee, `${c.name}: callerFee`);
+    }
 
     await assert.rejects(
       () =>

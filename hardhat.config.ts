@@ -85,15 +85,14 @@ export default defineConfig({
     version: "0.8.28",
     preferWasm: false,
     settings: {
+      // paris: wide chain support. viaIR + runs:1 + no metadata hash keep Inbox ≤24_576 create limit.
       evmVersion: "paris",
       viaIR: true,
       optimizer: {
         enabled: true,
-        // Lower runs shrink deployment size (higher runtime gas). Inbox must stay ≤24_576 create limit.
         runs: 1,
       },
       metadata: {
-        // Drop CBOR metadata hash from bytecode (~53 bytes); prefer size over sourcify hash embedding.
         bytecodeHash: "none",
       },
     },

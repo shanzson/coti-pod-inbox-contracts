@@ -19,24 +19,6 @@ import {
  */
 export const CREATEX_ADDRESS = getAddress("0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed");
 
-/**
- * Salt label for the deterministic Inbox. Combined with the deployer address and a
- * cross-chain-protection byte set to 0x00, this yields the SAME CREATE3 address on every
- * chain for a given deployer. Bump the version suffix to mint a fresh address family.
- */
-export const INBOX_SALT_LABEL = "pod.inbox.v2.0";
-
-/**
- * Salt label for the linked {MpcAbiCodec} library. Must be CREATE3-deployed to the same address
- * on every chain before Inbox bytecode is linked, otherwise Inbox initCode differs per chain.
- */
-export const MPC_ABI_CODEC_SALT_LABEL = "pod.mpc-abi-codec.v1.0";
-
-/** Salt label for CREATE3 {MpcAbiReEncode} contract (COTI DELEGATECALL target). */
-export const MPC_ABI_REENCODE_SALT_LABEL = "pod.mpc-abi-reencode.v1.0";
-
-/** @deprecated Call helper is inlined; retained for older scripts. */
-export const INBOX_CALL_LIB_SALT_LABEL = "pod.inbox-call-lib.v1.0";
 
 /** Minimal CreateX ABI: CREATE3 deploy (+ optional init) plus the address precompute view. */
 export const CREATEX_ABI = [
@@ -88,9 +70,13 @@ export const CREATEX_ABI = [
  *   deployer can use the salt, prevents front-running the address on a fresh chain).
  * - 21st byte = 0x00 => cross-chain redeploy protection DISABLED, so `block.chainid` is NOT mixed
  *   into the guarded salt and the resulting address is identical on every chain.
- * - Last 11 bytes = deterministic entropy derived from {INBOX_SALT_LABEL}.
+ * - Last 11 bytes = deterministic entropy derived from the caller-supplied salt `label`
+ *   (SoT: `deployConfig.*.yaml` `inboxSalt.label` / `mpcAbiCodecSalt.label` — never hardcode here).
  */
-export const buildInboxSalt = (deployer: Address, label: string = INBOX_SALT_LABEL): Hex => {
+export const buildInboxSalt = (deployer: Address, label: string): Hex => {
+  if (!label.trim()) {
+    throw new Error("buildInboxSalt: salt label required (from deployConfig, not a code constant)");
+  }
   const labelHash = keccak256(toHex(label));
   // First 11 bytes (22 hex chars) of the label hash as entropy.
   const entropy = (`0x${labelHash.slice(2, 2 + 22)}`) as Hex;
@@ -153,8 +139,8 @@ export type DeployInboxDeterministicParams = {
   chainId: bigint;
   /** Inbox compiled artifact ({ abi, bytecode }). Bytecode must be constructor-arg-free. */
   artifact: InboxArtifact;
-  /** Salt label driving the deterministic address family; defaults to {INBOX_SALT_LABEL}. */
-  saltLabel?: string;
+  /** Salt label from deployConfig (`inboxSalt.label`). Required — no code default. */
+  saltLabel: string;
   /**
    * {MpcAbiReEncode} address for Inbox.init (COTI). Pass zero address on non-MPC chains.
    * Defaults to zero address when omitted.
@@ -175,15 +161,15 @@ export type DeployCreate3Params = {
   publicClient: PublicClient;
   walletClient: WalletClient;
   deployer: Address;
-  /** Fully linked creation bytecode (no Solidity library placeholders). */
+  /** Creation bytecode (no Solidity library placeholders). */
   bytecode: Hex;
-  /** Salt label; defaults to {INBOX_SALT_LABEL} when omitted. */
-  saltLabel?: string;
+  /** Salt label from deployConfig. Required — no code default. */
+  saltLabel: string;
 };
 
 /**
  * Deterministically deploy arbitrary initCode via CreateX `deployCreate3` (no post-deploy init call).
- * Used for libraries such as {MpcAbiCodec} that have no initializer.
+ * Used for storage-free helpers such as {MpcAbiReEncode} that have no initializer.
  */
 export const deployCreate3Deterministic = async (
   params: DeployCreate3Params

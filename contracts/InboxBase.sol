@@ -8,7 +8,7 @@ import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
 
 /// @title InboxBase
 /// @notice Core inbox: outbound requests, inbound execution context, responses, errors, and MPC calldata encoding.
-/// @dev Mixed with {InboxFeeManager}. Subcontracts add miner and ownership behavior.
+/// @dev Mixed with {InboxFeeManager}. {InboxEstimateGas} extends this for estimate-mode + miner estimate API.
 contract InboxBase is IInbox, InboxFeeManager {
     using MinerRejectLib for MpcMethodCall;
     /// @notice This chain's ID (deploy-time; may differ from `block.chainid` when `_chainId` is non-zero).
@@ -32,22 +32,12 @@ contract InboxBase is IInbox, InboxFeeManager {
     /// chain sends to several targets, which is what the miner's contiguity guard relies on.
     mapping(uint256 => uint256) internal _requestNonce;
 
-    /// @dev C-04 estimate mode: no lasting state (always-revert); skip emits; accumulate reply sizes.
-    bool internal _inEstimate;
-    /// @dev 0 = none, 1 = respond outbound, 2 = raise/system-error outbound.
-    uint8 internal _estimateReplyKind;
-    uint256 internal _estimateResponseDataSize;
-    uint256 internal _estimateErrorDataSize;
-
-    uint8 internal constant ESTIMATE_REPLY_NONE = 0;
-    uint8 internal constant ESTIMATE_REPLY_RESPONSE = 1;
-    uint8 internal constant ESTIMATE_REPLY_ERROR = 2;
-
     /// @dev One-time initialization guard for {_initInboxBase}.
     bool private _initialized;
 
     error AlreadyInitialized();
     error NoActiveMessage();
+    error InvalidSourceContract();
     error ReplyAlreadySent();
     error RequestNotFound();
     error OnlyTargetCanReply();
@@ -68,6 +58,21 @@ contract InboxBase is IInbox, InboxFeeManager {
     /// @notice Storage-free re-encode helper; Inbox DELEGATECALLs it (COTI). Zero on non-MPC chains.
     address public mpcAbiReEncode;
 
+    /// @dev Overridden by {InboxEstimateGas} while an estimate is in flight.
+    function _isEstimating() internal view virtual returns (bool) {
+        return false;
+    }
+
+    /// @dev Overridden by {InboxEstimateGas} to suppress events during estimate.
+    function _shouldEmit() internal view virtual returns (bool) {
+        return true;
+    }
+
+    /// @dev Overridden by {InboxEstimateGas} to attribute respond/raise sizes during estimate.
+    function _tagEstimateOutboundReply(bool) internal virtual {}
+
+    /// @dev Overridden by {InboxEstimateGas} to accumulate tagged reply payload weight.
+    function _accumulateEstimateOutboundIfTagged(uint256) internal virtual {}
 
     uint64 internal constant ERROR_CODE_EXECUTION_FAILED = 1;
     uint64 internal constant ERROR_CODE_ENCODE_FAILED = 2;
@@ -218,9 +223,7 @@ contract InboxBase is IInbox, InboxFeeManager {
         address originalSenderContract = incomingRequest.originalSender;
         if (originalSenderContract == address(0)) revert OriginalSenderNotFound();
 
-        if (_inEstimate) {
-            _estimateReplyKind = isRaise ? ESTIMATE_REPLY_ERROR : ESTIMATE_REPLY_RESPONSE;
-        }
+        _tagEstimateOutboundReply(isRaise);
         bytes32 outboundRequestId = _sendOneWayMessage(
             currentContext.remoteChainId,
             originalSenderContract,
@@ -234,7 +237,7 @@ contract InboxBase is IInbox, InboxFeeManager {
 
         inboxResponses[incomingRequestId] = Response({responseRequestId: outboundRequestId, response: data});
 
-        if (!_inEstimate) {
+        if (_shouldEmit()) {
             if (isRaise) emit RaiseReceived(incomingRequestId, data);
             else emit ResponseReceived(incomingRequestId, data);
         }
@@ -242,7 +245,7 @@ contract InboxBase is IInbox, InboxFeeManager {
 
     /// @inheritdoc IInbox
     /// @dev Returns the stored `errorMessage` bytes as-is. For execution failures (code 1) that is the
-    ///      first ≤{InboxMiner.MAX_ERROR_RETURN_DATA} bytes of returndata (POD-02). Decode in the client.
+    ///      first ≤{InboxMiner.MAX_ERROR_RETURN_DATA} bytes of returndata. Decode in the client.
     function getOutboxError(bytes32 requestId) external view returns (uint256 code, bytes memory data) {
         Error memory err = errors[requestId];
         if (err.requestId == bytes32(0)) revert ErrorNotFound();
@@ -452,14 +455,7 @@ contract InboxBase is IInbox, InboxFeeManager {
             revert FeeGasTooHigh(callerFeeGas, localMinFeeConfig.maxExecutionGas);
         }
 
-        if (_inEstimate && _estimateReplyKind != ESTIMATE_REPLY_NONE) {
-            if (_estimateReplyKind == ESTIMATE_REPLY_RESPONSE) {
-                _estimateResponseDataSize += weight;
-            } else {
-                _estimateErrorDataSize += weight;
-            }
-            _estimateReplyKind = ESTIMATE_REPLY_NONE;
-        }
+        _accumulateEstimateOutboundIfTagged(weight);
 
         uint256 nonce = ++_requestNonce[targetChainId];
 
@@ -484,7 +480,7 @@ contract InboxBase is IInbox, InboxFeeManager {
 
         requests[requestId] = request;
 
-        if (!_inEstimate) {
+        if (_shouldEmit()) {
             (
                 bytes4 methodSelector,
                 bytes32 methodCallHash,
@@ -544,9 +540,7 @@ contract InboxBase is IInbox, InboxFeeManager {
             datalens: new bytes32[](0)
         });
 
-        if (_inEstimate) {
-            _estimateReplyKind = ESTIMATE_REPLY_ERROR;
-        }
+        _tagEstimateOutboundReply(true);
         // Attribute to {SYSTEM_SENDER}, not the intended COTI target (do not impersonate the peer).
         bytes32 outboundRequestId = _sendOneWayMessage(
             incomingRequest.targetChainId,
@@ -561,7 +555,7 @@ contract InboxBase is IInbox, InboxFeeManager {
 
         inboxResponses[incomingRequest.requestId] =
             Response({responseRequestId: outboundRequestId, response: payload});
-        if (!_inEstimate) {
+        if (_shouldEmit()) {
             emit SystemErrorRaised(incomingRequest.requestId, errorCode, payload);
         }
     }
@@ -685,7 +679,7 @@ contract InboxBase is IInbox, InboxFeeManager {
             errorMessage: errorMessage
         });
         errors[requestId] = err;
-        if (!_inEstimate) {
+        if (_shouldEmit()) {
             emit ErrorReceived(requestId, ERROR_CODE_ENCODE_FAILED, errorMessage);
         }
     }

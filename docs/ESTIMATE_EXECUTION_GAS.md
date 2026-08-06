@@ -2,6 +2,8 @@
 
 Public always-revert preflight for destination execution (miner `eth_call` or dapp UX).
 
+Implemented in [`InboxEstimateGas.sol`](../contracts/InboxEstimateGas.sol) (`_estimateExecutionGasForMiner`); public entry on `InboxMiner` for {IInboxMiner}.
+
 ## Call
 
 ```text

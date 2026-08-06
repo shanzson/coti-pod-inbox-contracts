@@ -7,7 +7,7 @@ import {
 } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
+import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
@@ -39,7 +39,7 @@ describe("Inbox system-error callback", { concurrency: false, timeout: 600_000 }
     const [wallet] = await viem.getWalletClients();
     const deployer = wallet.account.address as `0x${string}`;
 
-    const source = await deployLinkedInbox(viem, {
+    const source = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
     await source.write.init([deployer, SOURCE_CHAIN_ID, mpcAbiReEncodeOf(source)], { account: deployer });
@@ -57,7 +57,7 @@ describe("Inbox system-error callback", { concurrency: false, timeout: 600_000 }
     await oracle.write.setRemoteTokenPriceUSD([PRICE_SCALE_18], { account: deployer });
     await source.write.setPriceOracle([oracle.address], { account: deployer });
 
-    const target = await deployLinkedInbox(viem, {
+    const target = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
     await target.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(target)], { account: deployer });

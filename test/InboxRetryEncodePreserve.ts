@@ -8,7 +8,7 @@ import {
 } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
+import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 const MPC_PRECOMPILE = "0x0000000000000000000000000000000000000064" as const;
@@ -55,7 +55,7 @@ describe("Inbox POD-04 retry encode failure", { concurrency: false, timeout: 600
       params: [MPC_PRECOMPILE, mockCode],
     });
 
-    const inbox = await deployLinkedInbox(viem, {
+    const inbox = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
     await inbox.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(inbox)], { account: deployer });

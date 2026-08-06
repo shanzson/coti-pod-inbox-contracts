@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { decodeEventLog, padHex, toHex, size } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
+import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
@@ -34,7 +34,7 @@ const minimalMethodCall = (dataHex: `0x${string}` = "0x") => ({
   datalens: [] as `0x${string}`[],
 });
 
-describe("C-01 size caps and miner reject", { concurrency: false, timeout: 600_000 }, () => {
+describe("Size caps and miner reject", { concurrency: false, timeout: 600_000 }, () => {
   const connect = async () => {
     const { viem } = await network.connect({ network: "hardhat" });
     const publicClient = await viem.getPublicClient();
@@ -47,12 +47,12 @@ describe("C-01 size caps and miner reject", { concurrency: false, timeout: 600_0
     const env = await connect();
     const { viem, publicClient, wallet, deployer } = env;
 
-    const source = await deployLinkedInbox(viem, { client: { public: publicClient, wallet } });
+    const source = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
     await source.write.init([deployer, SOURCE_CHAIN_ID, mpcAbiReEncodeOf(source)], { account: deployer });
     await source.write.updateMinFeeConfigs([{ ...FEE }, { ...FEE }], { account: deployer });
     await source.write.addMiner([deployer], { account: deployer });
 
-    const target = await deployLinkedInbox(viem, { client: { public: publicClient, wallet } });
+    const target = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
     await target.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(target)], { account: deployer });
     await target.write.updateMinFeeConfigs([{ ...FEE }, { ...FEE }], { account: deployer });
     await target.write.addMiner([deployer], { account: deployer });
@@ -85,7 +85,7 @@ describe("C-01 size caps and miner reject", { concurrency: false, timeout: 600_0
 
   it("rejects updateMinFeeConfigs when constantFee>0 but max caps are zero", async () => {
     const { viem, publicClient, wallet, deployer } = await connect();
-    const inbox = await deployLinkedInbox(viem, { client: { public: publicClient, wallet } });
+    const inbox = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
     await inbox.write.init([deployer, SOURCE_CHAIN_ID, mpcAbiReEncodeOf(inbox)], { account: deployer });
     const bad = { ...FEE, maxMethodCallBytes: 0n };
     await assert.rejects(

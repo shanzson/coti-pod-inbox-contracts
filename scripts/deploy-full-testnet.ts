@@ -13,6 +13,7 @@ import {
   getViemClients,
   podConfigureKeepInbox,
   readDeployConfig,
+  requireSaltLabel,
   requireEnv,
 } from "./deploy-utils.js";
 
@@ -55,6 +56,18 @@ const verifyContract = async (
 
 const main = async () => {
   const minerAddress = asAddress(requireEnv("MINER_ADDRESS"), "MINER_ADDRESS");
+
+  const deployConfigEarly = await readDeployConfig();
+  const inboxSaltLabel = requireSaltLabel({
+    fromConfig: (deployConfigEarly as any).inboxSalt?.label,
+    envKey: "INBOX_SALT_LABEL",
+    configPath: "deployConfig.inboxSalt.label",
+  });
+  const mpcAbiCodecSaltLabel = requireSaltLabel({
+    fromConfig: (deployConfigEarly as any).mpcAbiCodecSalt?.label,
+    envKey: "MPC_ABI_CODEC_SALT_LABEL",
+    configPath: "deployConfig.mpcAbiCodecSalt.label",
+  });
   console.log(`[deploy-full-testnet] Using miner: ${minerAddress}`);
 
   console.log(`[deploy-full-testnet] Connecting to source network ${SOURCE_NETWORK}`);
@@ -91,6 +104,7 @@ const main = async () => {
     viem: sourceViem,
     publicClient: sourcePublicClient,
     walletClient: sourceWalletClient,
+    saltLabel: inboxSaltLabel,
   });
   const sourceInbox = sourceInboxDeploy.inbox;
   console.log(
@@ -143,6 +157,9 @@ const main = async () => {
     viem: cotiViem,
     publicClient: cotiPublicClient,
     walletClient: cotiWalletClient,
+    saltLabel: inboxSaltLabel,
+    deployReEncode: true,
+    reEncodeSaltLabel: mpcAbiCodecSaltLabel,
   });
   const cotiInbox = cotiInboxDeploy.inbox;
   console.log(

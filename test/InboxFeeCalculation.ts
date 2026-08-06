@@ -8,7 +8,7 @@ import {
   usdPerWholeToken18,
 } from "../scripts/deploy-utils.js";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
+import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
 
 /** Same as `mpc-test-utils.receiptWaitOptions` — avoid importing full mpc-test-utils (coti-ethers, etc.) in this file. */
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
@@ -197,7 +197,7 @@ describe(
       const { localUsd18, remoteUsd18 } = prices;
       const { viem, publicClient, wallet, deployer } = await getCtx();
       logStep("Deploy Inbox + PriceOracle (owner = deployer)");
-      const inbox = await deployLinkedInbox(viem, {
+      const inbox = await deployTestInbox(viem, {
         client: { public: publicClient, wallet },
       });
       await inbox.write.init([deployer, 0n, mpcAbiReEncodeOf(inbox)], { account: deployer });

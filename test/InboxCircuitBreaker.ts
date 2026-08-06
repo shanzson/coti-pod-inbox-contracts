@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
+import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
 
 describe("Inbox circuit breaker and oracle guards", { concurrency: 1 }, async function () {
   const { viem } = await network.connect({ network: "hardhat" });
@@ -13,7 +13,7 @@ describe("Inbox circuit breaker and oracle guards", { concurrency: 1 }, async fu
   let inbox: any;
 
   before(async function () {
-    inbox = await deployLinkedInbox(viem, {
+    inbox = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
     await inbox.write.init([deployer, 0n, mpcAbiReEncodeOf(inbox)], { account: deployer });

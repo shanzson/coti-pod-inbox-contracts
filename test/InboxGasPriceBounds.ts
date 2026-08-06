@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployLinkedInbox, mpcAbiReEncodeOf } from "../scripts/deploy-inbox-linked.js";
+import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 const TARGET_CHAIN_ID = 1001n;
@@ -35,7 +35,7 @@ describe("Inbox POD-07 reference gas price", { concurrency: false, timeout: 600_
     const [wallet] = await viem.getWalletClients();
     const deployer = wallet.account.address as `0x${string}`;
 
-    const inbox = await deployLinkedInbox(viem, {
+    const inbox = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
     await inbox.write.init([deployer, 1000n, mpcAbiReEncodeOf(inbox)], { account: deployer });

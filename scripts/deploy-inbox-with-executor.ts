@@ -7,6 +7,7 @@ import {
   getChainConfig,
   getViemClients,
   readDeployConfig,
+  requireSaltLabel,
   requireEnv,
 } from "./deploy-utils.js";
 
@@ -33,10 +34,18 @@ const main = async () => {
   console.log(`[deploy-inbox-with-executor] Using miner: ${minerAddress}`);
 
   console.log("[deploy-inbox-with-executor] Deploying deterministic Inbox via CreateX...");
+  const saltLabel = requireSaltLabel({
+    fromConfig: deployConfig.inboxSalt?.label,
+    envKey: "INBOX_SALT_LABEL",
+    configPath: "deployConfig.inboxSalt.label",
+  });
   const { inbox, predictedAddress, alreadyDeployed, txHash } = await deployDeterministicInbox({
     viem,
     publicClient,
     walletClient,
+    saltLabel,
+    deployReEncode: true,
+    reEncodeSaltLabel: requireSaltLabel({ fromConfig: deployConfig.mpcAbiCodecSalt?.label, envKey: "MPC_ABI_CODEC_SALT_LABEL", configPath: "deployConfig.mpcAbiCodecSalt.label" }),
   });
   console.log(
     alreadyDeployed
