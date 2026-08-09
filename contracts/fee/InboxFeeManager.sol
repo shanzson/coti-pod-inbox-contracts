@@ -46,6 +46,10 @@ abstract contract InboxFeeManager {
     /// @dev Same payload-weight units as {FeeConfig.maxMethodCallBytes}; keep ≤ peer ingest max. Single `uint32` slot.
     uint32 public maxReplyMethodCallBytes = 8192;
 
+    /// @notice Max age (seconds) from dest ingest {Request.timestamp} before execution-failed messages become terminal.
+    /// @dev `0` disables the TTL (uncapped retry). Checked on {retryFailedRequest}.
+    uint32 public maxMessageLife;
+
     /// @notice Fallback gas price (wei) when `tx.gasprice == 0` and no basefee path applies.
     uint256 public constant DEFAULT_GAS_PRICE = 2_000_000_000 wei;
 
@@ -295,38 +299,5 @@ abstract contract InboxFeeManager {
         uint256 gasUnits = (dataSize * uint256(feeConfig.gasPerByte)) + uint256(feeConfig.callbackExecutionGas)
             + (uint256(feeConfig.errorLength) * uint256(feeConfig.gasPerByte));
         return gasUnits * (10000 + uint256(feeConfig.bufferRatioX10000)) / 10000;
-    }
-
-    /// @notice Off-chain / UI helper: rough local-token wei cost at `gasPrice`.
-    /// @param remoteMethodCallSize Remote calldata size term.
-    /// @param callBackMethodCallSize Callback calldata size term.
-    /// @param remoteMethodExecutionGas Remote execution gas term.
-    /// @param callBackMethodExecutionGas Callback execution gas term.
-    /// @param gasPrice Wei per gas assumption.
-    /// @return targetFeeLocalWei Local-token wei estimated for the remote execution leg.
-    /// @return callerFeeLocalWei Local-token wei estimated for the callback leg.
-    function calculateTwoWayFeeRequiredInLocalToken(
-        uint256 remoteMethodCallSize,
-        uint256 callBackMethodCallSize,
-        uint256 remoteMethodExecutionGas,
-        uint256 callBackMethodExecutionGas,
-        uint256 gasPrice
-    ) external view returns (uint256 targetFeeLocalWei, uint256 callerFeeLocalWei) {
-        (uint256 localTokenPrice, uint256 remoteTokenPrice) = _validatedOraclePrices();
-        FeeConfig memory remoteMin = remoteMinFeeConfig;
-        FeeConfig memory localMin = localMinFeeConfig;
-        // Inverse gas-price skew: quote assumes remote gas units; convert to local-priced gas then wei.
-        uint256 targetGasRemoteUnits = expectedMinFee(remoteMethodCallSize, remoteMin) + remoteMethodExecutionGas;
-        uint256 callerGasLocalUnits = expectedMinFee(callBackMethodCallSize, localMin) + callBackMethodExecutionGas;
-        targetGasRemoteUnits = _applyGasPriceSkewInverse(targetGasRemoteUnits, remoteMin);
-        callerGasLocalUnits = _applyGasPriceSkewInverse(callerGasLocalUnits, localMin);
-        uint256 targetGasLocalUnits = Math.mulDiv(
-            targetGasRemoteUnits,
-            remoteTokenPrice,
-            localTokenPrice,
-            Math.Rounding.Ceil
-        );
-        targetFeeLocalWei = targetGasLocalUnits * gasPrice;
-        callerFeeLocalWei = callerGasLocalUnits * gasPrice;
     }
 }

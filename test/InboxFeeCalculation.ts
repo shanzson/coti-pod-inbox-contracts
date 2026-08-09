@@ -427,14 +427,6 @@ describe(
           account: deployer,
         });
 
-        const [targetWeiEst, callerWeiEst] = await inbox.read.calculateTwoWayFeeRequiredInLocalToken([
-          DATA_SIZE_HINT,
-          DATA_SIZE_HINT,
-          EXEC_GAS,
-          EXEC_GAS,
-          gp,
-        ]);
-
         const minLocalGasForHint = expectedTemplateMinGasUnits(DATA_SIZE_HINT, LOCAL_TEMPLATE);
         const remoteGasRequired = REMOTE_MIN_GAS_UNITS + EXEC_GAS;
         const targetGasLocalUnits =
@@ -442,6 +434,22 @@ describe(
           localTokenPriceUsd18;
         const expectedCallerWei = (minLocalGasForHint + EXEC_GAS) * gp;
         const expectedTargetWei = targetGasLocalUnits * gp;
+        // Fee quote lives on {InboxFeeQuoter} (not Inbox) to keep create bytecode under the limit.
+        const { viem, wallet } = await getCtx();
+        const quoter = await viem.deployContract("InboxFeeQuoter", [], {
+          client: { public: publicClient, wallet },
+        });
+        const [targetWeiEst, callerWeiEst] = await quoter.read.calculateTwoWayFeeRequiredInLocalToken([
+          { ...LOCAL_TEMPLATE },
+          { ...remoteConstantOnly },
+          localTokenPriceUsd18,
+          remoteTokenPriceUsd18,
+          DATA_SIZE_HINT,
+          DATA_SIZE_HINT,
+          EXEC_GAS,
+          EXEC_GAS,
+          gp,
+        ]);
         assert.equal(callerWeiEst, expectedCallerWei, "local leg = (expectedMinFee(20) + 200k exec gas) * gasPrice");
         assert.equal(targetWeiEst, expectedTargetWei, "remote leg in local wei = (remote min + exec gas) scaled by oracle ratio");
 

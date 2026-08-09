@@ -86,6 +86,8 @@ contract InboxBase is IInbox, InboxFeeManager {
     uint64 internal constant ERROR_CODE_ENCODE_FAILED = 2;
     /// @notice Miner rejected an inbound nonce via the special reject {MpcMethodCall} encoding.
     uint64 internal constant ERROR_CODE_MINER_REJECTED = 3;
+    /// @notice Incoming request exceeded {maxMessageLife} while still execution-failed; terminalized on retry.
+    uint64 internal constant ERROR_CODE_EXPIRED = 4;
 
     /// @notice Max bytes retained for execution or encode failure payloads (prefix only).
     /// @dev Unbounded returndata/encode reasons can OOG miner txs and wedge the contiguous nonce queue.

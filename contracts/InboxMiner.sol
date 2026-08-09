@@ -260,6 +260,12 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
         _setMaxReplyMethodCallBytes(maxBytes);
     }
 
+    /// @notice Set max age (seconds) from dest ingest before execution-failed requests terminalize on retry.
+    /// @param lifeSeconds `0` disables the lifetime check.
+    function setMaxMessageLife(uint32 lifeSeconds) external onlyOwner {
+        maxMessageLife = lifeSeconds;
+    }
+
     enum IncomingExecKind {
         Mine,
         Estimate,
@@ -291,6 +297,7 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
     }
 
     /// @dev Retries a failed request, if the method execution is failed. Caller pays the execution gas so we don't care about the gas limit.
+    ///      If {maxMessageLife} has elapsed since dest ingest, terminalizes instead (system-error return when funded).
     /// @param requestId The ID of the incoming request to retry.
     function retryFailedRequest(bytes32 requestId) external nonReentrant {
         if (messageProcessingPaused) {
@@ -304,6 +311,12 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
         uint256 errorCode = errors[requestId].errorCode;
         if (!incomingRequest.executed || errorCode != ERROR_CODE_EXECUTION_FAILED) {
             revert RetryFailedRequestNotAFailedRequest();
+        }
+        uint32 life = maxMessageLife;
+        if (life != 0 && block.timestamp > uint256(incomingRequest.timestamp) + uint256(life)) {
+            errors[requestId].errorCode = ERROR_CODE_EXPIRED;
+            _sendSystemErrorCallbackWithCode(incomingRequest, ERROR_CODE_EXPIRED, "ttl");
+            return;
         }
 
         _runIncomingExecution(incomingRequest, sourceChainId, IncomingExecKind.Retry, 0);
