@@ -5,11 +5,28 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 import "./MpcExecutorGt64Repro.sol";
 
 /// @title MockInbox
-/// @notice Mock inbox for testing purposes.
+/// @notice Mock inbox for testing purposes (minimal {IInbox} context surface for peer auth).
 contract MockInbox {
-
     event Respond(bytes data);
     event Error(bytes data);
+
+    uint256 public remoteChainId;
+    address public remoteContract;
+    bytes32 public sourceRequestId;
+
+    function setContext(uint256 chainId, address peer, bytes32 sourceId) external {
+        remoteChainId = chainId;
+        remoteContract = peer;
+        sourceRequestId = sourceId;
+    }
+
+    function inboxMsgSender() external view returns (uint256, address) {
+        return (remoteChainId, remoteContract);
+    }
+
+    function inboxSourceRequestId() external view returns (bytes32) {
+        return sourceRequestId;
+    }
 
     function respond(bytes memory data) external {
         emit Respond(data);

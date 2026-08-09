@@ -11,7 +11,12 @@ contract RaiseInboxTestCoti is InboxUser {
         setInbox(inboxAddress);
     }
 
-    function triggerRaise(bytes calldata errorPayload) external onlyInbox {
+    /// @notice Register the Sepolia source peer allowed to invoke {triggerRaise}.
+    function setTrustedRemote(uint256 chainId, address peer) external {
+        _setTrustedRemote(chainId, peer);
+    }
+
+    function triggerRaise(bytes calldata errorPayload) external onlyInboxPeer {
         inbox.raise(errorPayload);
     }
 }
@@ -35,15 +40,16 @@ contract RaiseInboxTestSepolia is InboxUser {
         setInbox(inboxAddress);
         cotiChainId = cotiChainId_;
         cotiRaiseContract = cotiRaiseContract_;
+        _setTrustedRemote(cotiChainId_, cotiRaiseContract_);
     }
 
     receive() external payable {}
 
-    function onSuccess(bytes calldata) external view onlyInbox {
+    function onSuccess(bytes calldata) external view onlyInboxReturnLeg {
         revert ExpectedRaisePathNotSuccess();
     }
 
-    function onRaiseError(bytes calldata payload) external onlyInbox {
+    function onRaiseError(bytes calldata payload) external onlyInboxReturnLeg {
         raiseErrorCalled = true;
         lastRaiseErrorPayload = payload;
         lastErrorSourceRequestId = inbox.inboxSourceRequestId();

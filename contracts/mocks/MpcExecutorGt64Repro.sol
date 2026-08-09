@@ -8,6 +8,7 @@ import "@coti-io/coti-contracts/contracts/pod/InboxUser.sol";
 /// @title MpcExecutorGt64Repro
 /// @notice Test-only executor: `gt64` paths used to reproduce {InboxMiner} `ERROR_CODE_EXECUTION_FAILED` (1) with the
 /// same empty `errorMessage` pattern as failed real `MpcExecutor.gt64` subcalls (bare `revert()` or OOG).
+/// @dev Registers a trusted peer for {onlyInboxPeer}. Call {setTrustedRemote} from the harness for the mock source.
 contract MpcExecutorGt64Repro is InboxUser {
     event GtResult(ctBool result, address cOwner);
 
@@ -15,7 +16,11 @@ contract MpcExecutorGt64Repro is InboxUser {
         setInbox(_inbox);
     }
 
-    function gt64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+    function setTrustedRemote(uint256 chainId, address peer) external {
+        _setTrustedRemote(chainId, peer);
+    }
+
+    function gt64(gtUint64 a, gtUint64 b, address cOwner) external onlyInboxPeer {
         _emitRespondBool(MpcCore.gt(a, b), cOwner);
     }
 

@@ -99,9 +99,10 @@ contract InboxBase is IInbox, InboxFeeManager {
     uint256 public constant MAX_ERROR_RETURN_DATA = 256;
 
     /// @notice Placeholder `originalSender` for Inbox-generated system-error return legs (not a real contract).
-    /// @dev Error callbacks must not require `inboxMsgSender()` to equal the COTI peer; use {onlyInbox} +
-    ///      {inboxErrorType()} / non-zero {inboxSourceRequestId} (set only by {raise} / system-error delivery).
-    ///      System payload: {ErrorData} (`errorCode`, `message`). Attribution via {SYSTEM_SENDER}. Not retryable.
+    /// @dev Error callbacks must not require `inboxMsgSender()` to equal the COTI peer; use
+    ///      {InboxUser.onlyInboxReturnLeg} (or transport `onlyInbox` + non-zero {inboxSourceRequestId})
+    ///      and {inboxErrorType()}. System payload: {ErrorData}. Attribution via {SYSTEM_SENDER}.
+    ///      Prefer {InboxUser.onlyInboxPeer} for success / peer entrypoints. Not retryable.
     address public constant SYSTEM_SENDER = address(uint160(uint256(keccak256("POD_INBOX_SYSTEM_SENDER"))));
 
     /// @notice Outbound cross-chain request was created.

@@ -10,11 +10,20 @@ contract SystemErrorReceiver {
     uint256 public errorCount;
     IInbox.InboxErrorType public lastErrorType;
 
+    error OnlyInbox(address caller);
+    error NotLinkedReturnLeg();
+
     constructor(address inbox_) {
         inbox = IInbox(inbox_);
     }
 
     function onSystemError(bytes calldata data) external {
+        if (msg.sender != address(inbox)) {
+            revert OnlyInbox(msg.sender);
+        }
+        if (inbox.inboxSourceRequestId() == bytes32(0)) {
+            revert NotLinkedReturnLeg();
+        }
         lastErrorType = inbox.inboxErrorType();
         lastError = data;
         unchecked {

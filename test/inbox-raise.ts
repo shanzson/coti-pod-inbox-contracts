@@ -54,6 +54,8 @@ describe("Inbox raise() → error callback (system)", { concurrency: 1 }, async 
       raiseCoti.address,
     ]);
 
+    await raiseCoti.write.setTrustedRemote([BigInt(ctx.chainIds.sepolia), raiseSepolia.address]);
+
     await fundContractForInboxFees(hardhatCotiWallet, ctx.sepolia.publicClient, raiseSepolia.address as `0x${string}`);
 
     raiseSepoliaAsCotiWallet = await sepoliaViem.getContractAt("RaiseInboxTestSepolia", raiseSepolia.address, {
