@@ -722,6 +722,19 @@ export const deployDeterministicInbox = async (params: {
   const inbox = await params.viem.getContractAt("Inbox", result.address, {
     client: { public: params.publicClient, wallet: params.walletClient },
   });
+  // Atomic CreateX init must replace the constructor placeholder Ownable(address(1)).
+  const PLACEHOLDER_OWNER = "0x0000000000000000000000000000000000000001" as const;
+  const owner = (await inbox.read.owner()) as `0x${string}`;
+  if (owner.toLowerCase() === PLACEHOLDER_OWNER) {
+    throw new Error(
+      `Inbox at ${result.address} still has placeholder owner address(1); atomic init did not transfer ownership`
+    );
+  }
+  if (!result.alreadyDeployed && owner.toLowerCase() !== deployer.toLowerCase()) {
+    throw new Error(
+      `Inbox at ${result.address} owner ${owner} != deployer ${deployer} after deployCreate3AndInit`
+    );
+  }
   return {
     ...result,
     inbox,

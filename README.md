@@ -46,6 +46,10 @@ npm run test:inbox-fee
 
 For full-stack work (inbox + dApps + E2E tests), open the **pod-ecosystem-integration** workspace.
 
+## Deploy / init
+
+Inbox creation bytecode is chain-identical: the constructor sets a placeholder `Ownable(address(1))` owner and takes no arguments so CREATE3 addresses stay stable. Production deploys **must** use CreateX `deployCreate3AndInit` (or an equivalent atomic path) so `{init}` runs in the same transaction as creation—there is no safe split deploy-then-init window, and `_disableInitializers()` is intentionally **not** used because this contract *is* the live instance. Deploy helpers assert `owner() != address(1)` after init.
+
 ## Networks
 
 See `hardhat.config.ts` — Sepolia, Avalanche Fuji, COTI testnet, and local `chain1`/`chain2` simulators for multichain tests.
