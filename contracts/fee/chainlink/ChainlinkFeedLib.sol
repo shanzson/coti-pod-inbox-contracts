@@ -30,8 +30,11 @@ library ChainlinkFeedLib {
             if (answer <= 0 || answeredInRound < roundId) {
                 return (false, 0);
             }
-            if (maxStaleness != 0 && updatedAt + maxStaleness < block.timestamp) {
-                return (false, 0);
+            // Non-overflowing age check; also reject future-dated feeds.
+            if (maxStaleness != 0) {
+                if (updatedAt > block.timestamp || block.timestamp - updatedAt > maxStaleness) {
+                    return (false, 0);
+                }
             }
             // `decimals()` is outside the `latestRoundData` try body so a reverting feed cannot
             // break the documented never-revert contract of this helper.
@@ -70,8 +73,11 @@ library ChainlinkFeedLib {
             if (answer <= 0 || answeredInRound < roundId) {
                 return (false, 0, updatedAt);
             }
-            if (maxStaleness != 0 && updatedAt + maxStaleness < block.timestamp) {
-                return (false, 0, updatedAt);
+            // Non-overflowing age check; also reject future-dated feeds.
+            if (maxStaleness != 0) {
+                if (updatedAt > block.timestamp || block.timestamp - updatedAt > maxStaleness) {
+                    return (false, 0, updatedAt);
+                }
             }
             try AggregatorV3Interface(feed).decimals() returns (uint8 decimals) {
                 uint256 normalized = _normalizeTo18(uint256(answer), decimals);

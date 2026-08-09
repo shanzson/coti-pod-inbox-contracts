@@ -31,8 +31,11 @@ library BandFeedLib {
             uint256 updatedAt = data.lastUpdatedBase < data.lastUpdatedQuote
                 ? data.lastUpdatedBase
                 : data.lastUpdatedQuote;
-            if (maxStaleness != 0 && updatedAt + maxStaleness < block.timestamp) {
-                return (false, 0);
+            // Non-overflowing age check; also reject future-dated feeds.
+            if (maxStaleness != 0) {
+                if (updatedAt > block.timestamp || block.timestamp - updatedAt > maxStaleness) {
+                    return (false, 0);
+                }
             }
             return (true, data.rate);
         } catch {
@@ -63,8 +66,11 @@ library BandFeedLib {
             updatedAt = data.lastUpdatedBase < data.lastUpdatedQuote
                 ? data.lastUpdatedBase
                 : data.lastUpdatedQuote;
-            if (maxStaleness != 0 && updatedAt + maxStaleness < block.timestamp) {
-                return (false, 0, updatedAt);
+            // Non-overflowing age check; also reject future-dated feeds.
+            if (maxStaleness != 0) {
+                if (updatedAt > block.timestamp || block.timestamp - updatedAt > maxStaleness) {
+                    return (false, 0, updatedAt);
+                }
             }
             return (true, data.rate, updatedAt);
         } catch {
@@ -119,8 +125,11 @@ library BandFeedLib {
         uint256 updatedAt = data.lastUpdatedBase < data.lastUpdatedQuote
             ? data.lastUpdatedBase
             : data.lastUpdatedQuote;
-        if (maxStaleness != 0 && updatedAt + maxStaleness < block.timestamp) {
-            return (false, 0);
+        // Non-overflowing age check; also reject future-dated feeds.
+        if (maxStaleness != 0) {
+            if (updatedAt > block.timestamp || block.timestamp - updatedAt > maxStaleness) {
+                return (false, 0);
+            }
         }
         return (true, data.rate);
     }
