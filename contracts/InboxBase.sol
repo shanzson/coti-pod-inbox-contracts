@@ -43,6 +43,10 @@ contract InboxBase is IInbox, InboxFeeManager {
     error OnlyTargetCanReply();
     error OriginalSenderNotFound();
     error NoErrorHandler();
+    /// @notice {respond}/{raise} called while executing a one-way incoming request.
+    error NotTwoWayMessage();
+    /// @notice {respond} called but the incoming request has no `callbackSelector`.
+    error NoCallbackHandler();
     error ErrorNotFound();
     error ResponseNotFound();
     error CannotSendToSameChain();
@@ -185,11 +189,13 @@ contract InboxBase is IInbox, InboxFeeManager {
     }
 
     /// @inheritdoc IInbox
+    /// @dev Requires a two-way incoming request with a non-zero `callbackSelector`.
     function respond(bytes memory data) external {
         _reply(false, data);
     }
 
     /// @inheritdoc IInbox
+    /// @dev Requires a two-way incoming request with a non-zero `errorSelector`.
     function raise(bytes memory data) external {
         _reply(true, data);
     }
@@ -209,7 +215,9 @@ contract InboxBase is IInbox, InboxFeeManager {
         Request storage incomingRequest = incomingRequests[incomingRequestId];
         if (incomingRequest.requestId == bytes32(0)) revert RequestNotFound();
         if (msg.sender != incomingRequest.targetContract) revert OnlyTargetCanReply();
+        if (!incomingRequest.isTwoWay) revert NotTwoWayMessage();
         if (isRaise && incomingRequest.errorSelector == bytes4(0)) revert NoErrorHandler();
+        if (!isRaise && incomingRequest.callbackSelector == bytes4(0)) revert NoCallbackHandler();
 
         bytes4 replySelector = isRaise ? incomingRequest.errorSelector : incomingRequest.callbackSelector;
         MpcMethodCall memory replyMethodCall = MpcMethodCall({
