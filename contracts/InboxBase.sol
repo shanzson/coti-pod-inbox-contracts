@@ -173,6 +173,8 @@ contract InboxBase is IInbox, InboxFeeManager {
     }
 
     /// @inheritdoc IInbox
+    /// @dev `targetChainId` is not allowlisted — integrators must pass a supported PoD lane id.
+    ///      Wrong ids strand fees on an unroutable lane (user footgun, not an attacker-introduced risk).
     function sendTwoWayMessage(
         uint256 targetChainId,
         address targetContract,
@@ -196,6 +198,7 @@ contract InboxBase is IInbox, InboxFeeManager {
     }
 
     /// @inheritdoc IInbox
+    /// @dev `targetChainId` is not allowlisted — see {sendTwoWayMessage}.
     function sendOneWayMessage(
         uint256 targetChainId,
         address targetContract,

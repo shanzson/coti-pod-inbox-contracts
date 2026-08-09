@@ -278,7 +278,10 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
         _collectFees(to);
     }
 
-    /// @dev Retries a failed request, if the method execution is failed. Caller pays the execution gas so we don't care about the gas limit.
+    /// @dev Permissionless recovery: anyone may retry an execution-failed request. The retrier pays
+    ///      destination gas; the call uses `gasleft()` rather than the prepaid `targetFee` so a
+    ///      under-budget first mine can still recover. dApps must treat delivery timing as adversarial
+    ///      (`targetFee` is miner best-effort for the initial mine only).
     ///      If {maxMessageLife} has elapsed since dest ingest, terminalizes instead (system-error return when funded).
     /// @param requestId The ID of the incoming request to retry.
     function retryFailedRequest(bytes32 requestId) external nonReentrant {
