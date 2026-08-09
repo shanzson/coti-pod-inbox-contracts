@@ -15,6 +15,8 @@ Fee metering may still use `abi.encode(methodCall).length`. A message can be und
 
 Admin UI / runbooks should label fields as **“max method-call payload weight (bytes)”** and show this formula.
 
+Reply legs (`respond` / `raise`) use the same weight units via `maxReplyMethodCallBytes`, so a destination contract cannot mint an oversized return message that the source lane cannot ingest.
+
 ## Defaults
 
 | Knob | Default |
