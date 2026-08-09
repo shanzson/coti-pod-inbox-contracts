@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 import "@coti-io/coti-contracts/contracts/pod/mpccodec/MpcAbiCodec.sol";
-import "../MpcAbiReEncode.sol";
+import "../../../contracts/MpcAbiReEncode.sol";
 
 /// @title MpcAbiCodecHarness
 /// @notice Test wrapper exposing {MpcAbiCodec} helpers for Hardhat tests.

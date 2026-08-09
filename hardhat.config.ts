@@ -45,6 +45,10 @@ const cotiTestnetAccounts = () => collectTestPrivateKeys();
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin],
+  paths: {
+    // Production contracts + test-only harnesses/mocks (kept outside contracts/ for npm publish).
+    sources: ["./contracts", "./test/contracts"],
+  },
   verify: {
     etherscan: {
       apiKey: envOrConfig("ETHERSCAN_API_KEY"),
