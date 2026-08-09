@@ -29,6 +29,51 @@ describe("Inbox circuit breaker and oracle guards", { concurrency: 1 }, async fu
     await inbox.write.setMessageProcessingPaused([false], { account: deployer });
   });
 
+  it("sendTwoWayMessage reverts while message processing is paused", async function () {
+    const pausedInbox = await deployTestInbox(viem, {
+      client: { public: publicClient, wallet },
+    });
+    await pausedInbox.write.init([deployer, 0n, mpcAbiReEncodeOf(pausedInbox)], { account: deployer });
+    const fee = {
+      constantFee: 1n,
+      gasPerByte: 0n,
+      callbackExecutionGas: 0n,
+      errorLength: 0n,
+      bufferRatioX10000: 0n,
+      maxMethodCallBytes: 8192n,
+      maxExecutionGas: 5_000_000n,
+      gasPriceMul: 1n,
+      gasPriceDiv: 1n,
+    } as const;
+    await pausedInbox.write.updateMinFeeConfigs([{ ...fee }, { ...fee }], { account: deployer });
+    const oracle = await viem.deployContract("PriceOracle", [deployer], {
+      client: { public: publicClient, wallet },
+    });
+    const { localToken, remoteToken } = oracleTokensForChain(31337);
+    await oracle.write.setInboxTokens([localToken, remoteToken], { account: deployer });
+    await oracle.write.setLocalTokenPriceUSD([10n ** 18n], { account: deployer });
+    await oracle.write.setRemoteTokenPriceUSD([10n ** 18n], { account: deployer });
+    await pausedInbox.write.setPriceOracle([oracle.address], { account: deployer });
+    await pausedInbox.write.setGasPriceBounds([0n, 1_000_000_000n, 1_000_000_000n], { account: deployer });
+
+    await pausedInbox.write.setMessageProcessingPaused([true], { account: deployer });
+    await assert.rejects(
+      () =>
+        pausedInbox.write.sendTwoWayMessage(
+          [
+            999n,
+            deployer,
+            { selector: "0x00000000", data: "0x", datatypes: [], datalens: [] },
+            "0x12345678",
+            "0x87654321",
+            1n,
+          ],
+          { account: deployer, value: 1_000_000n, gasPrice: 1_000_000_000n }
+        ),
+      /MessageProcessingPaused/
+    );
+  });
+
   it("sendTwoWayMessage reverts with OracleNotConfigured when oracle unset", async function () {
     await assert.rejects(
       inbox.write.sendTwoWayMessage(

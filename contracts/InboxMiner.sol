@@ -22,11 +22,8 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
     /// @notice Gas reserved after an estimate subcall so {ExecutionGasEstimate} can always encode.
     uint256 private constant ESTIMATE_OUTER_RESERVE = 150_000;
 
-    /// @notice When true, {batchProcessRequests} and {retryFailedRequest} revert (circuit breaker).
-    bool public messageProcessingPaused;
-
-    /// @notice Pause or unpause inbound message processing (owner-only emergency stop).
-    /// @param paused True to halt {batchProcessRequests} and {retryFailedRequest}.
+    /// @notice Pause or unpause messaging (owner-only emergency stop).
+    /// @param paused True to halt outbound sends, {batchProcessRequests}, and {retryFailedRequest}.
     function setMessageProcessingPaused(bool paused) external onlyOwner {
         messageProcessingPaused = paused;
         emit MessageProcessingPausedUpdated(paused);

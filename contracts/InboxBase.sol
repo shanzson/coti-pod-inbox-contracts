@@ -62,9 +62,14 @@ contract InboxBase is IInbox, InboxFeeManager {
     error RawCallHasDatatypes();
     error RawCallHasDatalens();
     error MpcAbiReEncodeRequired();
+    /// @notice Circuit breaker: outbound sends / inbound processing are paused.
+    error MessageProcessingPaused();
 
     /// @notice Storage-free re-encode helper; Inbox DELEGATECALLs it (COTI). Zero on non-MPC chains.
     address public mpcAbiReEncode;
+
+    /// @notice When true, outbound sends and inbound processing revert (circuit breaker).
+    bool public messageProcessingPaused;
 
     /// @dev Overridden by {InboxEstimateGas} while an estimate is in flight.
     function _isEstimating() internal view virtual returns (bool) {
@@ -169,6 +174,7 @@ contract InboxBase is IInbox, InboxFeeManager {
         bytes4 errorSelector,
         uint256 callbackFeeLocalWei
     ) external payable virtual returns (bytes32 requestId) {
+        if (messageProcessingPaused) revert MessageProcessingPaused();
         if (callbackSelector == bytes4(0) || errorSelector == bytes4(0) || callbackSelector == errorSelector) {
             revert InvalidTwoWaySelectors();
         }
@@ -189,6 +195,7 @@ contract InboxBase is IInbox, InboxFeeManager {
         MpcMethodCall calldata methodCall,
         bytes4 errorSelector
     ) external payable returns (bytes32 requestId) {
+        if (messageProcessingPaused) revert MessageProcessingPaused();
         if (errorSelector != bytes4(0)) {
             revert OneWayErrorSelectorNotSupported(errorSelector);
         }
