@@ -16,11 +16,6 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
     error RequestAlreadyProcessed();
 
     using MinerRejectLib for IInbox.MpcMethodCall;
-    /// @notice Max bytes of target returndata retained on failure (prefix only).
-    /// @dev Full payload is hashed; storing unbounded returndata can OOG the miner tx and wedge the
-    ///      contiguous incoming-nonce queue.
-    uint256 public constant MAX_ERROR_RETURN_DATA = 256;
-
     /// @notice Gas reserved after the target subcall so failure accounting can always commit.
     uint256 private constant POST_CALL_GAS_RESERVE = 100_000;
 
@@ -340,10 +335,11 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
             if (kind == IncomingExecKind.Retry) {
                 // Preserve ERROR_CODE_EXECUTION_FAILED so retry stays eligible.
                 _clearExecutionContext();
-                revert RetryFailedRequestEncodeFailed(encodeErr);
+                revert RetryFailedRequestEncodeFailed(_capErrorReturnData(encodeErr));
             }
-            _recordEncodeError(incomingRequest.requestId, encodeErr);
-            _sendSystemErrorCallback(incomingRequest, encodeErr);
+            bytes memory cappedEncodeErr = _capErrorReturnData(encodeErr);
+            _recordEncodeError(incomingRequest.requestId, cappedEncodeErr);
+            _sendSystemErrorCallback(incomingRequest, cappedEncodeErr);
             _clearExecutionContext();
             incomingRequest.executed = true;
             return 0;

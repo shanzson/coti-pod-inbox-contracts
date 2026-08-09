@@ -87,6 +87,10 @@ contract InboxBase is IInbox, InboxFeeManager {
     /// @notice Miner rejected an inbound nonce via the special reject {MpcMethodCall} encoding.
     uint64 internal constant ERROR_CODE_MINER_REJECTED = 3;
 
+    /// @notice Max bytes retained for execution or encode failure payloads (prefix only).
+    /// @dev Unbounded returndata/encode reasons can OOG miner txs and wedge the contiguous nonce queue.
+    uint256 public constant MAX_ERROR_RETURN_DATA = 256;
+
     /// @notice Placeholder `originalSender` for Inbox-generated system-error return legs (not a real contract).
     /// @dev Error callbacks must not require `inboxMsgSender()` to equal the COTI peer; use {onlyInbox} +
     ///      {inboxErrorType()} / non-zero {inboxSourceRequestId} (set only by {raise} / system-error delivery).
@@ -260,8 +264,8 @@ contract InboxBase is IInbox, InboxFeeManager {
     }
 
     /// @inheritdoc IInbox
-    /// @dev Returns the stored `errorMessage` bytes as-is. For execution failures (code 1) that is the
-    ///      first ≤{InboxMiner.MAX_ERROR_RETURN_DATA} bytes of returndata. Decode in the client.
+    /// @dev Returns the stored `errorMessage` bytes as-is. For execution/encode failures that is the
+    ///      first ≤{MAX_ERROR_RETURN_DATA} bytes of the failure payload. Decode in the client.
     function getOutboxError(bytes32 requestId) external view returns (uint256 code, bytes memory data) {
         Error memory err = errors[requestId];
         if (err.requestId == bytes32(0)) revert ErrorNotFound();
@@ -694,10 +698,11 @@ contract InboxBase is IInbox, InboxFeeManager {
     }
 
     /// @dev Records an encode failure and emits {ErrorReceived}.
+    ///      `encodeErr` is truncated to {MAX_ERROR_RETURN_DATA} (same bound as execution returndata).
     function _recordEncodeError(bytes32 requestId, bytes memory encodeErr) internal {
-        bytes memory errorMessage = encodeErr.length == 0
-            ? abi.encodePacked("enc")
-            : encodeErr;
+        bytes memory errorMessage = _capErrorReturnData(
+            encodeErr.length == 0 ? abi.encodePacked("enc") : encodeErr
+        );
         Error memory err = Error({
             requestId: requestId,
             errorCode: ERROR_CODE_ENCODE_FAILED,
@@ -706,6 +711,24 @@ contract InboxBase is IInbox, InboxFeeManager {
         errors[requestId] = err;
         if (_shouldEmit()) {
             emit ErrorReceived(requestId, ERROR_CODE_ENCODE_FAILED, errorMessage);
+        }
+    }
+
+    /// @dev Prefix-truncate `data` to at most {MAX_ERROR_RETURN_DATA} bytes.
+    function _capErrorReturnData(bytes memory data) internal pure returns (bytes memory capped) {
+        uint256 maxLen = MAX_ERROR_RETURN_DATA;
+        uint256 len = data.length;
+        if (len <= maxLen) {
+            return data;
+        }
+        capped = new bytes(maxLen);
+        assembly {
+            // Copy full 32-byte words (maxLen is 256).
+            let src := add(data, 32)
+            let dst := add(capped, 32)
+            for { let offset := 0 } lt(offset, maxLen) { offset := add(offset, 32) } {
+                mstore(add(dst, offset), mload(add(src, offset)))
+            }
         }
     }
 }
