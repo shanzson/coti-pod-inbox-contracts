@@ -269,6 +269,9 @@ export const chainlinkFeedsForChain = (chainId: number): ChainlinkFeedConfig => 
   );
 };
 
+/** Matches on-chain `{InboxBase.MAX_ERROR_RETURN_DATA}` — fee-template `errorLength` must not exceed this. */
+export const MAX_ERROR_RETURN_DATA_BYTES = 256n;
+
 /** Default payload-weight admission cap (bytes); used by ship templates and constant-fee floor math. */
 export const DEFAULT_MAX_METHOD_CALL_BYTES = 8192n;
 
@@ -330,6 +333,27 @@ export const assertFeeConfigPairConstantFeeFloors = (pair: {
   assertConstantFeeCoversWorstCase(pair.remote, "remote FeeConfig");
 };
 
+/** Variable-fee `errorLength` must not exceed on-chain error returndata cap. */
+export const assertErrorLengthWithinReturnDataCap = (fee: FeeConfigTuple, label = "FeeConfig"): void => {
+  if (fee.constantFee > 0n) {
+    return;
+  }
+  if (fee.errorLength > MAX_ERROR_RETURN_DATA_BYTES) {
+    throw new Error(
+      `${label}: errorLength ${fee.errorLength} > MAX_ERROR_RETURN_DATA (${MAX_ERROR_RETURN_DATA_BYTES}). ` +
+        `Lower errorLength to ≤ ${MAX_ERROR_RETURN_DATA_BYTES}.`
+    );
+  }
+};
+
+export const assertFeeConfigPairErrorLengths = (pair: {
+  local: FeeConfigTuple;
+  remote: FeeConfigTuple;
+}): void => {
+  assertErrorLengthWithinReturnDataCap(pair.local, "local FeeConfig");
+  assertErrorLengthWithinReturnDataCap(pair.remote, "remote FeeConfig");
+};
+
 /** Ship constant-fee value: priced execution + max-size ingest at measured rate. */
 const FEE_CONFIG_COTI_SIDE_CONSTANT = constantFeeWorstCaseFloor({
   maxMethodCallBytes: DEFAULT_MAX_METHOD_CALL_BYTES,
@@ -345,7 +369,7 @@ export const FEE_CONFIG_SEPOLIA_SIDE = {
   // Measured ingest storage is ~690+ gas/byte; keep margin (≥ MEASURED_INGEST_GAS_PER_BYTE).
   gasPerByte: MEASURED_INGEST_GAS_PER_BYTE,
   callbackExecutionGas: 100_000n,
-  errorLength: 300n,
+  errorLength: MAX_ERROR_RETURN_DATA_BYTES,
   bufferRatioX10000: 5000n,
   maxMethodCallBytes: DEFAULT_MAX_METHOD_CALL_BYTES,
   maxExecutionGas: 5_000_000n,
@@ -452,6 +476,7 @@ export const readFeeConfigForChain = async (
     pair = testnetMinFeeConfigsForChain(chainId);
   }
   assertFeeConfigPairConstantFeeFloors(pair);
+  assertFeeConfigPairErrorLengths(pair);
   return pair;
 };
 
