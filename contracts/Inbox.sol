@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
 import "./InboxMiner.sol";
@@ -27,5 +27,10 @@ contract Inbox is InboxMiner, Initializable {
         }
         _initInboxBase(_chainId, _mpcAbiReEncode);
         _transferOwnership(initialOwner);
+    }
+
+    /// @notice Ownership cannot be renounced (inbox admin must remain reachable).
+    function renounceOwnership() public pure override {
+        revert();
     }
 }

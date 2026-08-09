@@ -67,7 +67,11 @@ describe("Size caps and miner reject", { concurrency: false, timeout: 600_000 },
     await source.write.setPriceOracle([oracle.address], { account: deployer });
     await target.write.setPriceOracle([oracle.address], { account: deployer });
 
-    return { ...env, source, target };
+    const rejectTools = await viem.deployContract("MinerRejectTools", [], {
+      client: { public: publicClient, wallet },
+    });
+
+    return { ...env, source, target, rejectTools };
   };
 
   const toMined = (r: any) => ({
@@ -121,26 +125,30 @@ describe("Size caps and miner reject", { concurrency: false, timeout: 600_000 },
   });
 
   it("helper builds reject methodCall; isMinerRejectMethodCall round-trips", async () => {
-    const { target } = await deployPair();
+    const { rejectTools } = await deployPair();
     const reason = padHex("0x01", { size: 32 });
-    const mc = (await target.read.buildMinerRejectMethodCall([7, reason])) as any;
+    const mc = (await rejectTools.read.buildMinerRejectMethodCall([7, reason])) as any;
     assert.equal(mc.selector, "0x00000000");
     assert.equal(mc.datatypes.length, 0);
     assert.equal(mc.datalens.length, 0);
     assert.equal(size(mc.data), 34);
 
-    const parsed = (await target.read.isMinerRejectMethodCall([mc])) as [boolean, number, `0x${string}`];
+    const parsed = (await rejectTools.read.isMinerRejectMethodCall([mc])) as [boolean, number, `0x${string}`];
     assert.equal(parsed[0], true);
     assert.equal(Number(parsed[1]), 7);
     assert.equal(parsed[2].toLowerCase(), reason.toLowerCase());
 
     const spoof = { ...mc, datatypes: ["0x0000000000000001" as `0x${string}`] };
-    const spoofParsed = (await target.read.isMinerRejectMethodCall([spoof])) as [boolean, number, `0x${string}`];
+    const spoofParsed = (await rejectTools.read.isMinerRejectMethodCall([spoof])) as [
+      boolean,
+      number,
+      `0x${string}`,
+    ];
     assert.equal(spoofParsed[0], false);
   });
 
   it("in-batch reject advances cursor without fat storage; retry fails", async () => {
-    const { source, target, deployer, publicClient } = await deployPair();
+    const { source, target, deployer, publicClient, rejectTools } = await deployPair();
 
     const hash = await source.write.sendOneWayMessage(
       [TARGET_CHAIN_ID, deployer, minimalMethodCall(), "0x00000000"],
@@ -151,7 +159,7 @@ describe("Size caps and miner reject", { concurrency: false, timeout: 600_000 },
     const reqs = (await source.read.getRequests([TARGET_CHAIN_ID, 0n, 1n])) as any[];
     const mined = toMined(reqs[0]);
     const reason = padHex("0xdead", { size: 32 });
-    mined.methodCall = (await target.read.buildMinerRejectMethodCall([1, reason])) as any;
+    mined.methodCall = (await rejectTools.read.buildMinerRejectMethodCall([1, reason])) as any;
 
     const mineHash = await target.write.batchProcessRequests([SOURCE_CHAIN_ID, [mined]], {
       account: deployer,

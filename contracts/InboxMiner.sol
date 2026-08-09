@@ -213,24 +213,6 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
         }
     }
 
-    /// @inheritdoc IInboxMiner
-    function buildMinerRejectMethodCall(uint8 rejectionCode, bytes32 rejectionReason)
-        external
-        pure
-        returns (IInbox.MpcMethodCall memory methodCall)
-    {
-        return MinerRejectLib.build(rejectionCode, rejectionReason);
-    }
-
-    /// @inheritdoc IInboxMiner
-    function isMinerRejectMethodCall(IInbox.MpcMethodCall memory methodCall)
-        external
-        pure
-        returns (bool isReject, uint8 rejectionCode, bytes32 rejectionReason)
-    {
-        return MinerRejectLib.parse(methodCall);
-    }
-
     /// @notice Configure the oracle used for fee conversion.
     /// @param oracle {PriceOracle} address.
     function setPriceOracle(address oracle) external onlyOwner {

@@ -63,9 +63,6 @@ abstract contract InboxFeeManager {
     /// @notice Ceiling for the reference gas price (wei). Zero disables the ceiling.
     uint256 public maxGasPriceWei;
 
-    /// @dev Reserved execution gas units for error paths (documentation constant; enforcement is application-level).
-    uint256 internal constant MIN_GAS_RESERVE_EXECUTION = 100_000;
-
     /// @notice Total native fee was zero.
     error TotalFeeTooLow(uint256 totalFee);
     /// @notice Callback fee slice was zero, exceeded total, or bought too few local callback gas units.
@@ -211,11 +208,6 @@ abstract contract InboxFeeManager {
     /// @dev Apply gas-price skew: `units * mul / div` (configs already in memory — no extra SLOAD).
     function _applyGasPriceSkew(uint256 gasUnits, FeeConfig memory feeConfig) private pure returns (uint256) {
         return Math.mulDiv(gasUnits, uint256(feeConfig.gasPriceMul), uint256(feeConfig.gasPriceDiv));
-    }
-
-    /// @dev Inverse of {_applyGasPriceSkew} for wei quotes from remote gas units.
-    function _applyGasPriceSkewInverse(uint256 gasUnits, FeeConfig memory feeConfig) private pure returns (uint256) {
-        return Math.mulDiv(gasUnits, uint256(feeConfig.gasPriceDiv), uint256(feeConfig.gasPriceMul), Math.Rounding.Ceil);
     }
 
     /// @notice Set the respond/raise payload-weight cap.

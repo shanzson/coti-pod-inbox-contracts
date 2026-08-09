@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 /// @title MinerBase
 /// @notice Ownable registry of addresses allowed to call miner-only inbox functions.
-abstract contract MinerBase is Ownable {
+abstract contract MinerBase is Ownable2Step {
     error NotMiner();
     error MinerZeroAddress();
     error AlreadyMiner();
