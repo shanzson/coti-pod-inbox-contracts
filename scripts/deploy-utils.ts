@@ -276,7 +276,8 @@ export const chainlinkFeedsForChain = (chainId: number): ChainlinkFeedConfig => 
  */
 export const FEE_CONFIG_SEPOLIA_SIDE = {
   constantFee: 0n,
-  gasPerByte: 10n,
+  // Measured ingest storage is ~690+ gas/byte; keep margin (≥ ~800).
+  gasPerByte: 800n,
   callbackExecutionGas: 100_000n,
   errorLength: 300n,
   bufferRatioX10000: 5000n,

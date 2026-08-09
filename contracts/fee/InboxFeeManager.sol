@@ -20,6 +20,7 @@ abstract contract InboxFeeManager {
     ///      `maxMethodCallBytes` / `maxExecutionGas` are **always** required (including constant-fee mode).
     ///      Size caps use **payload weight** = `data.length + datatypes.length*32 + datalens.length*32`
     ///      (not `abi.encode(methodCall).length`).
+    ///      Variable-fee `gasPerByte` should reflect measured ingest storage cost (deploy templates use ≥ 800).
     ///      Packed as seven `uint32`s + two `uint16`s (`gasPriceMul`/`gasPriceDiv`) → **one storage slot**.
     struct FeeConfig {
         uint32 constantFee;
