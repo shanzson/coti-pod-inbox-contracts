@@ -269,6 +269,72 @@ export const chainlinkFeedsForChain = (chainId: number): ChainlinkFeedConfig => 
   );
 };
 
+/** Default payload-weight admission cap (bytes); used by ship templates and constant-fee floor math. */
+export const DEFAULT_MAX_METHOD_CALL_BYTES = 8192n;
+
+/**
+ * Measured ingest storage cost (gas per payload-weight byte).
+ * Same floor as variable-fee deploy `gasPerByte` (measured ingest ~690+ with margin).
+ */
+export const MEASURED_INGEST_GAS_PER_BYTE = 800n;
+
+/**
+ * Destination execution gas-units priced into constant-fee floors (deploy schedule).
+ * Distinct from `FeeConfig.maxExecutionGas`, which must stay ≥ `constantFee` on-chain and is typically
+ * set equal to the chosen flat fee after the floor is applied.
+ */
+export const CONSTANT_FEE_PRICED_EXECUTION_GAS = 12_000_000n;
+
+/**
+ * Worst-case dest gas-unit floor for constant-fee mode:
+ * `pricedExecutionGas + maxMethodCallBytes * ingestGasPerByte`, optionally buffered.
+ */
+export const constantFeeWorstCaseFloor = (params: {
+  maxMethodCallBytes: bigint;
+  pricedExecutionGas?: bigint;
+  ingestGasPerByte?: bigint;
+  bufferRatioX10000?: bigint;
+}): bigint => {
+  const priced = params.pricedExecutionGas ?? CONSTANT_FEE_PRICED_EXECUTION_GAS;
+  const perByte = params.ingestGasPerByte ?? MEASURED_INGEST_GAS_PER_BYTE;
+  const buffer = params.bufferRatioX10000 ?? 0n;
+  const raw = priced + params.maxMethodCallBytes * perByte;
+  return (raw * (10_000n + buffer)) / 10_000n;
+};
+
+/**
+ * Deploy/CI guard: when `constantFee > 0`, require it covers the capped worst case
+ * (priced max execution + max-size ingest). No-op for variable-fee templates.
+ */
+export const assertConstantFeeCoversWorstCase = (fee: FeeConfigTuple, label = "FeeConfig"): void => {
+  if (fee.constantFee === 0n) {
+    return;
+  }
+  const floor = constantFeeWorstCaseFloor({ maxMethodCallBytes: fee.maxMethodCallBytes });
+  if (fee.constantFee < floor) {
+    throw new Error(
+      `${label}: constantFee ${fee.constantFee} < worst-case floor ${floor} ` +
+        `(pricedExecution=${CONSTANT_FEE_PRICED_EXECUTION_GAS} + ` +
+        `maxMethodCallBytes=${fee.maxMethodCallBytes} * ingestGasPerByte=${MEASURED_INGEST_GAS_PER_BYTE}). ` +
+        `Raise constantFee and set maxExecutionGas ≥ constantFee.`
+    );
+  }
+};
+
+/** Assert both local and remote templates satisfy the constant-fee worst-case floor. */
+export const assertFeeConfigPairConstantFeeFloors = (pair: {
+  local: FeeConfigTuple;
+  remote: FeeConfigTuple;
+}): void => {
+  assertConstantFeeCoversWorstCase(pair.local, "local FeeConfig");
+  assertConstantFeeCoversWorstCase(pair.remote, "remote FeeConfig");
+};
+
+/** Ship constant-fee value: priced execution + max-size ingest at measured rate. */
+const FEE_CONFIG_COTI_SIDE_CONSTANT = constantFeeWorstCaseFloor({
+  maxMethodCallBytes: DEFAULT_MAX_METHOD_CALL_BYTES,
+});
+
 /**
  * Sepolia-side fee template (variable minimum): `constantFee == 0` and all template fields non-zero.
  * Used as **local** on Sepolia and as **remote** on COTI when paired with {@link FEE_CONFIG_COTI_SIDE}.
@@ -276,12 +342,12 @@ export const chainlinkFeedsForChain = (chainId: number): ChainlinkFeedConfig => 
  */
 export const FEE_CONFIG_SEPOLIA_SIDE = {
   constantFee: 0n,
-  // Measured ingest storage is ~690+ gas/byte; keep margin (≥ ~800).
-  gasPerByte: 800n,
+  // Measured ingest storage is ~690+ gas/byte; keep margin (≥ MEASURED_INGEST_GAS_PER_BYTE).
+  gasPerByte: MEASURED_INGEST_GAS_PER_BYTE,
   callbackExecutionGas: 100_000n,
   errorLength: 300n,
   bufferRatioX10000: 5000n,
-  maxMethodCallBytes: 8192n,
+  maxMethodCallBytes: DEFAULT_MAX_METHOD_CALL_BYTES,
   maxExecutionGas: 5_000_000n,
   gasPriceMul: 1n,
   gasPriceDiv: 1n,
@@ -291,16 +357,17 @@ export const FEE_CONFIG_SEPOLIA_SIDE = {
  * COTI-side fee template (constant minimum gas units): `constantFee > 0` and other variable fields zero.
  * Max size/gas caps are still required. Used as **remote** on Sepolia and as **local** on COTI when paired
  * with {@link FEE_CONFIG_SEPOLIA_SIDE}.
+ * `constantFee` is the worst-case floor (priced execution + max-size ingest); `maxExecutionGas` matches.
  */
 export const FEE_CONFIG_COTI_SIDE = {
-  constantFee: 12_000_000n,
+  constantFee: FEE_CONFIG_COTI_SIDE_CONSTANT,
   gasPerByte: 0n,
   callbackExecutionGas: 0n,
   errorLength: 0n,
   bufferRatioX10000: 0n,
-  maxMethodCallBytes: 8192n,
+  maxMethodCallBytes: DEFAULT_MAX_METHOD_CALL_BYTES,
   // Must be ≥ constantFee or create/ingest always reverts FeeGasTooHigh.
-  maxExecutionGas: 12_000_000n,
+  maxExecutionGas: FEE_CONFIG_COTI_SIDE_CONSTANT,
   gasPriceMul: 1n,
   gasPriceDiv: 1n,
 } as const;
@@ -371,16 +438,21 @@ export const testnetMinFeeConfigsForChain = (chainId: number): { local: FeeConfi
 export const readFeeConfigForChain = async (
   chainId: number
 ): Promise<{ local: FeeConfigTuple; remote: FeeConfigTuple }> => {
+  let pair: { local: FeeConfigTuple; remote: FeeConfigTuple };
   try {
     const cfg = await readDeployConfig();
     const fc = cfg.chains?.[String(chainId)]?.feeConfig;
     if (fc?.local && fc?.remote) {
-      return { local: feeConfigTupleFromJson(fc.local), remote: feeConfigTupleFromJson(fc.remote) };
+      pair = { local: feeConfigTupleFromJson(fc.local), remote: feeConfigTupleFromJson(fc.remote) };
+    } else {
+      pair = testnetMinFeeConfigsForChain(chainId);
     }
   } catch {
     // Missing/unreadable config — fall back to built-in defaults below.
+    pair = testnetMinFeeConfigsForChain(chainId);
   }
-  return testnetMinFeeConfigsForChain(chainId);
+  assertFeeConfigPairConstantFeeFloors(pair);
+  return pair;
 };
 
 /** True for Sepolia, Avalanche Fuji, local Hardhat, or COTI testnet (same IDs as {@link testnetMinFeeConfigsForChain}). */
@@ -591,6 +663,7 @@ export const configureTestnetInboxMinFees = async (params: {
   walletClient: WalletClient;
   chainId: number;
 }) => {
+  // readFeeConfigForChain asserts constant-fee worst-case floors before return.
   const { local, remote } = await readFeeConfigForChain(params.chainId);
   const deployer = await resolveDeployerAddress(params.walletClient);
   const writeOpts = { account: deployer } as const;

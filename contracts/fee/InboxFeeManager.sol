@@ -21,6 +21,8 @@ abstract contract InboxFeeManager {
     ///      Size caps use **payload weight** = `data.length + datatypes.length*32 + datalens.length*32`
     ///      (not `abi.encode(methodCall).length`).
     ///      Variable-fee `gasPerByte` should reflect measured ingest storage cost (deploy templates use ≥ 800).
+    ///      Constant-fee ops: set `constantFee` ≥ priced max-execution work + max-size ingest (deploy assert /
+    ///      checklist); keep `maxExecutionGas >= constantFee`. Flat fees stay valid once the worst case is capped.
     ///      Packed as seven `uint32`s + two `uint16`s (`gasPriceMul`/`gasPriceDiv`) → **one storage slot**.
     struct FeeConfig {
         uint32 constantFee;

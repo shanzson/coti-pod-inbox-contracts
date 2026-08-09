@@ -22,12 +22,23 @@ Reply legs (`respond` / `raise`) use the same weight units via `maxReplyMethodCa
 | Knob | Default |
 |---|---|
 | `FeeConfig.maxMethodCallBytes` | `8192` |
-| `FeeConfig.maxExecutionGas` | `5_000_000` (variable) / `≥ constantFee` (constant-fee legs, e.g. `12_000_000`) |
+| `FeeConfig.maxExecutionGas` | `5_000_000` (variable) / `≥ constantFee` (constant-fee legs; ship floor = priced execution + max-size ingest) |
 | `maxReplyMethodCallBytes` | `8192` |
 
 These apply to **constant-fee and variable-fee** templates. `constantFee > 0` does not allow omitting the two max fields. On-chain validation also requires `maxExecutionGas >= constantFee` when constant mode is used.
 
 `FeeConfig` fields and `maxReplyMethodCallBytes` are **`uint32`** (seven fee fields pack into **one storage slot** per local/remote config). Values must stay ≤ `type(uint32).max` (~4.29e9).
+
+## Constant-fee worst-case floor (deploy checklist)
+
+Flat `constantFee` is intentional once payload size and execution gas are **hard-capped**. Before shipping or retuning a constant-fee template:
+
+1. Take the deploy schedule’s **priced execution** gas units and **measured ingest gas per payload-weight byte**.
+2. Compute `floor = pricedExecution + maxMethodCallBytes × ingestGasPerByte` (optional buffer via `bufferRatioX10000` on the floor helper).
+3. Set `constantFee ≥ floor`, then set `maxExecutionGas ≥ constantFee` (usually equal).
+4. Record both values in `deployConfig` / fee templates. Deploy helpers **assert** this inequality and refuse to apply underpriced constant-fee configs.
+
+Subsidy vs margin above the floor is an operator policy choice; shipping below the floor is not.
 
 ## Admin invariants
 
