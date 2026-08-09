@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 /// @title PriceOracle
 /// @notice Cached USD oracle for inbox fee conversion.
 /// @dev Inbox reads cache only; {PoDPriceOracle} adds live adapter reads for the portal.
+///      Fee path stays fail-open (non-zero prices); freshness is monitored via meta views / ops bot.
 contract PriceOracle is Ownable {
     /// @notice Price is stored with 18 decimals of precision.
     uint256 public constant PRICE_SCALE = 10 ** 18;
@@ -13,7 +14,9 @@ contract PriceOracle is Ownable {
     /// @notice Minimum seconds between successful cache refreshes. Zero disables the time gate.
     uint256 public fetchInterval;
 
-    /// @notice Timestamp of the last successful refresh or admin set.
+    /// @notice Timestamp of the last successful {refreshCache} that ran past the interval gate.
+    /// @dev Manual {setLocalTokenPriceUSD}/{setRemoteTokenPriceUSD} do **not** advance this, so a
+    ///      manual write on one leg cannot suppress live refresh of the other.
     uint256 public lastFetchTimestamp;
 
     /// @notice Local execution-chain token whose USD price is cached for inbox fees.
@@ -25,6 +28,9 @@ contract PriceOracle is Ownable {
     /// @notice Cached USD price per inbox leg token (18 decimals per whole token).
     mapping(address => uint256) public cachedPriceUSD;
 
+    /// @notice Timestamp of the last genuine cache write per token (refresh or manual set).
+    mapping(address => uint256) public priceUpdatedAt;
+
     /// @notice Address allowed to set manual prices (in addition to {refreshCache}).
     address public priceAdmin;
 
@@ -34,11 +40,35 @@ contract PriceOracle is Ownable {
     /// @notice Token address was zero.
     error ZeroToken();
 
+    /// @notice Local and remote inbox tokens must differ.
+    error IdenticalInboxTokens(address token);
+
     /// @notice Token is not a configured inbox leg.
     error UnknownToken(address token);
 
     /// @notice Caller is not the configured price admin.
     error NotPriceAdmin();
+
+    /// @notice Price admin cannot be the zero address.
+    error ZeroPriceAdmin();
+
+    /// @notice Inbox leg tokens were (re)configured.
+    event InboxTokensUpdated(address indexed previousLocal, address indexed previousRemote, address indexed newLocal, address newRemote);
+
+    /// @notice Fetch interval changed.
+    event FetchIntervalUpdated(uint256 previous, uint256 current);
+
+    /// @notice Price admin changed.
+    event PriceAdminUpdated(address indexed previous, address indexed current);
+
+    /// @notice Cached USD price written for an inbox leg.
+    event CachedPriceUpdated(address indexed token, uint256 priceUsd, uint256 updatedAt);
+
+    /// @notice Both inbox legs were refreshed past the interval gate.
+    event CacheRefreshed(address indexed localToken, uint256 localPrice, address indexed remoteToken, uint256 remotePrice);
+
+    /// @notice A refresh kept the prior cache because the live pull returned zero.
+    event CacheRefreshLegFailed(address indexed token, uint256 retainedCachedPrice);
 
     /// @dev Reverts unless `msg.sender` is {priceAdmin}.
     modifier onlyPriceAdmin() {
@@ -54,12 +84,27 @@ contract PriceOracle is Ownable {
     }
 
     /// @notice Configure inbox leg tokens (e.g. WETH local, COTI remote).
+    /// @dev Clears cache + update timestamps for any replaced leg so the next refresh is not gated on stale state.
     function setInboxTokens(address localToken_, address remoteToken_) external onlyOwner {
         if (localToken_ == address(0) || remoteToken_ == address(0)) {
             revert ZeroToken();
         }
+        if (localToken_ == remoteToken_) {
+            revert IdenticalInboxTokens(localToken_);
+        }
+        address prevLocal = localToken;
+        address prevRemote = remoteToken;
+        if (prevLocal != address(0) && prevLocal != localToken_ && prevLocal != remoteToken_) {
+            delete cachedPriceUSD[prevLocal];
+            delete priceUpdatedAt[prevLocal];
+        }
+        if (prevRemote != address(0) && prevRemote != localToken_ && prevRemote != remoteToken_) {
+            delete cachedPriceUSD[prevRemote];
+            delete priceUpdatedAt[prevRemote];
+        }
         localToken = localToken_;
         remoteToken = remoteToken_;
+        emit InboxTokensUpdated(prevLocal, prevRemote, localToken_, remoteToken_);
     }
 
     /// @notice Cached USD price for an inbox leg token.
@@ -85,18 +130,61 @@ contract PriceOracle is Ownable {
             return;
         }
         lastFetchTimestamp = block.timestamp;
+        uint256 localPrice;
+        uint256 remotePrice;
         if (localToken != address(0)) {
-            cachedPriceUSD[localToken] = _pullCachedPrice(localToken);
+            localPrice = _refreshLeg(localToken);
         }
         if (remoteToken != address(0)) {
-            cachedPriceUSD[remoteToken] = _pullCachedPrice(remoteToken);
+            remotePrice = _refreshLeg(remoteToken);
         }
+        emit CacheRefreshed(localToken, localPrice, remoteToken, remotePrice);
         _afterRefreshCache();
+    }
+
+    /// @dev Pull live (or subclass) price; write on success, emit failure when pull is zero and cache retained.
+    function _refreshLeg(address token) private returns (uint256 stored) {
+        uint256 previous = cachedPriceUSD[token];
+        uint256 pulled = _pullCachedPrice(token);
+        if (pulled != 0) {
+            cachedPriceUSD[token] = pulled;
+            priceUpdatedAt[token] = block.timestamp;
+            emit CachedPriceUpdated(token, pulled, block.timestamp);
+            return pulled;
+        }
+        emit CacheRefreshLegFailed(token, previous);
+        return previous;
     }
 
     /// @notice Cached local and remote inbox leg prices.
     function getPricesUSD() external view returns (uint256 localPrice, uint256 remotePrice) {
         return (cachedPriceUSD[localToken], cachedPriceUSD[remoteToken]);
+    }
+
+    /// @notice Cached prices plus per-leg write times and last refresh gate timestamp.
+    function getPricesUSDWithMeta()
+        external
+        view
+        returns (
+            uint256 localPrice,
+            uint256 remotePrice,
+            uint256 localUpdatedAt,
+            uint256 remoteUpdatedAt,
+            uint256 lastFetchTimestamp_
+        )
+    {
+        return (
+            cachedPriceUSD[localToken],
+            cachedPriceUSD[remoteToken],
+            priceUpdatedAt[localToken],
+            priceUpdatedAt[remoteToken],
+            lastFetchTimestamp
+        );
+    }
+
+    /// @notice Whether the interval gate would allow {refreshCache} to run now.
+    function fetchGateOpen() external view returns (bool) {
+        return _fetchIntervalsElapsed();
     }
 
     /// @notice Cached local leg price.
@@ -116,11 +204,16 @@ contract PriceOracle is Ownable {
 
     /// @notice Minimum seconds between cache refreshes.
     function setFetchInterval(uint256 secondsBetweenFetches) external onlyOwner {
+        emit FetchIntervalUpdated(fetchInterval, secondsBetweenFetches);
         fetchInterval = secondsBetweenFetches;
     }
 
     /// @notice Set the address allowed to set manual inbox prices.
     function setPriceAdmin(address admin) external onlyOwner {
+        if (admin == address(0)) {
+            revert ZeroPriceAdmin();
+        }
+        emit PriceAdminUpdated(priceAdmin, admin);
         priceAdmin = admin;
     }
 
@@ -150,7 +243,9 @@ contract PriceOracle is Ownable {
             revert ZeroUsdPrice();
         }
         cachedPriceUSD[token] = price;
-        lastFetchTimestamp = block.timestamp;
+        priceUpdatedAt[token] = block.timestamp;
+        // Do not touch {lastFetchTimestamp}: manual writes must not suppress live refresh of the other leg.
+        emit CachedPriceUpdated(token, price, block.timestamp);
     }
 
     function _fetchIntervalsElapsed() internal view returns (bool) {

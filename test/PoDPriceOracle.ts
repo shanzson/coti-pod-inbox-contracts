@@ -15,7 +15,7 @@ const SCALE = 10n ** 18n;
 const BAND_ETH = usdPerWholeToken18("2200");
 
 describe("PoDPriceOracle", { concurrency: 1 }, async () => {
-  const { viem } = await network.connect({ network: "hardhat" });
+  const { viem, provider } = await network.connect({ network: "hardhat" });
   const client = await viem.getPublicClient();
   const [wallet] = await viem.getWalletClients();
   const owner = wallet.account.address as `0x${string}`;
@@ -119,5 +119,63 @@ describe("PoDPriceOracle", { concurrency: 1 }, async () => {
         x.inputs.length === 1
     );
     assert.equal(hasSingleLeg, false, "single-leg refreshCache(address) must be removed (POD-05)");
+  });
+
+  it("manual setLocalTokenPriceUSD does not suppress remote live refresh", async () => {
+    const feed = await viem.deployContract("MockChainlinkAggregator", [8, ETH_8], { client: c });
+    const ad = await viem.deployContract("ChainlinkLiveOracle", [owner, 3600n], { client: c });
+    await ad.write.setFeed([localToken, feed.address], { account: owner });
+    const oracle = await viem.deployContract("PoDPriceOracle", [owner, ad.address, 60n], { client: c });
+    await oracle.write.setInboxTokens([localToken, remoteToken], { account: owner });
+    await oracle.write.setRemoteTokenPriceUSD([usdPerWholeToken18(TESTNET_COTI_USD)], { account: owner });
+    await oracle.write.refreshCache([]);
+    const afterRefresh = await oracle.read.lastFetchTimestamp();
+    assert.ok(afterRefresh > 0n);
+
+    await provider.request({ method: "evm_increaseTime", params: [61] });
+    await provider.request({ method: "evm_mine", params: [] });
+
+    await oracle.write.setRemoteTokenPriceUSD([usdPerWholeToken18("0.02")], { account: owner });
+    const afterManual = await oracle.read.lastFetchTimestamp();
+    assert.equal(afterManual, afterRefresh, "manual set must not advance lastFetchTimestamp");
+
+    await feed.write.setAnswer([3000_00000000n], { account: owner });
+    await oracle.write.refreshCache([]);
+    assert.equal(await oracle.read.getLocalTokenPriceUSD(), usdPerWholeToken18("3000"));
+    assert.equal(await oracle.read.getRemoteTokenPriceUSD(), usdPerWholeToken18("0.02"));
+  });
+
+  it("setPriceAdmin(0) and setInboxTokens identical legs revert", async () => {
+    const { oracle } = await deploy("band");
+    await assert.rejects(() => oracle.write.setPriceAdmin(["0x0000000000000000000000000000000000000000"], { account: owner }), /ZeroPriceAdmin|reverted/);
+    await assert.rejects(() => oracle.write.setInboxTokens([localToken, localToken], { account: owner }), /IdenticalInboxTokens|reverted/);
+  });
+
+  it("getOracleHealth and getPricesUSDWithMeta expose cache ages", async () => {
+    const { oracle } = await deploy("band");
+    await oracle.write.setRemoteTokenPriceUSD([usdPerWholeToken18(TESTNET_COTI_USD)], { account: owner });
+    await oracle.write.refreshCache([]);
+    const meta = await oracle.read.getPricesUSDWithMeta();
+    assert.ok(meta[0] > 0n);
+    assert.ok(meta[1] > 0n);
+    assert.ok(meta[2] > 0n);
+    assert.ok(meta[4] > 0n);
+    const health = await oracle.read.getOracleHealth();
+    assert.equal(health[0] > 0n, true); // localCached
+    assert.equal(health[1] > 0n, true); // remoteCached
+    assert.equal(health[4], true); // localLiveOk (Band feed)
+    // remote is inbox cache via setRemoteTokenPriceUSD, not a live feed / manualPrices peg
+    assert.equal(health[9], true); // fetchGateOpen after interval-0 deploy
+  });
+
+  it("refreshCache retains cache when live pull is zero", async () => {
+    const feed = await viem.deployContract("MockChainlinkAggregator", [8, ETH_8], { client: c });
+    const { oracle } = await deploy("chainlink", feed.address);
+    await oracle.write.setRemoteTokenPriceUSD([usdPerWholeToken18(TESTNET_COTI_USD)], { account: owner });
+    await oracle.write.refreshCache([]);
+    const cached = await oracle.read.getLocalTokenPriceUSD();
+    await feed.write.setAnswer([0n], { account: owner });
+    await oracle.write.refreshCache([]);
+    assert.equal(await oracle.read.getLocalTokenPriceUSD(), cached);
   });
 });

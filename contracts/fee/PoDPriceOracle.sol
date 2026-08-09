@@ -28,6 +28,7 @@ contract PoDPriceOracle is PriceOracle, IPodPriceOracle {
     }
 
     /// @notice Register or replace the live-price adapter.
+    /// @dev `address(0)` disables live reads (manual / cache-only). Prefer a deliberate clear over accidental unset.
     function setConfiguredOracle(address oracle) external onlyOwner {
         emit ConfiguredOracleUpdated(address(configuredOracle), oracle);
         configuredOracle = IPodPriceOracle(oracle);
@@ -102,16 +103,48 @@ contract PoDPriceOracle is PriceOracle, IPodPriceOracle {
         }
         delete manualPrices[token];
         delete cachedPriceUSD[token];
+        delete priceUpdatedAt[token];
         emit ManualPriceUpdated(token, 0);
     }
 
+    /// @notice Ops / health-bot surface: cached vs live for both inbox legs (fail-open fee path unchanged).
+    /// @dev `liveOk` is false when live returns zero; inbox sends still use non-zero cache only.
+    function getOracleHealth()
+        external
+        view
+        returns (
+            uint256 localCached,
+            uint256 remoteCached,
+            uint256 localLive,
+            uint256 remoteLive,
+            bool localLiveOk,
+            bool remoteLiveOk,
+            uint256 localUpdatedAt,
+            uint256 remoteUpdatedAt,
+            uint256 lastFetchTimestamp_,
+            bool fetchGateOpen_,
+            bool localManual,
+            bool remoteManual
+        )
+    {
+        localCached = cachedPriceUSD[localToken];
+        remoteCached = cachedPriceUSD[remoteToken];
+        localLive = _livePrice(localToken);
+        remoteLive = _livePrice(remoteToken);
+        localLiveOk = localLive != 0;
+        remoteLiveOk = remoteLive != 0;
+        localUpdatedAt = priceUpdatedAt[localToken];
+        remoteUpdatedAt = priceUpdatedAt[remoteToken];
+        lastFetchTimestamp_ = lastFetchTimestamp;
+        fetchGateOpen_ = _fetchIntervalsElapsed();
+        localManual = manualPrices[localToken] != 0;
+        remoteManual = manualPrices[remoteToken] != 0;
+    }
+
     /// @inheritdoc PriceOracle
+    /// @dev Return live/manual only — never the prior cache — so a zero pull is visible to refresh failure events.
     function _pullCachedPrice(address token) internal view override returns (uint256) {
-        uint256 price = _livePrice(token);
-        if (price != 0) {
-            return price;
-        }
-        return cachedPriceUSD[token];
+        return _livePrice(token);
     }
 
     function _livePrice(address token) internal view returns (uint256 priceUsd) {
