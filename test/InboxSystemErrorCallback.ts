@@ -91,7 +91,7 @@ describe("Inbox system-error callback", { concurrency: false, timeout: 600_000 }
         TARGET_CHAIN_ID,
         dummyTarget.address,
         badMethodCall,
-        "0x00000000",
+        "0x11111111",
         errorSelector,
         CALLBACK_FEE_WEI,
       ],

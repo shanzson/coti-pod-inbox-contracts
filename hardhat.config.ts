@@ -85,8 +85,9 @@ export default defineConfig({
     version: "0.8.28",
     preferWasm: false,
     settings: {
-      // paris: wide chain support. viaIR + runs:1 + no metadata hash keep Inbox ≤24_576 create limit.
-      evmVersion: "paris",
+      // shanghai (PUSH0): needed for Inbox ≤24_576 after reply/selector guards; viaIR + runs:1 + no metadata hash.
+      // Target chains (Sepolia / Fuji / COTI) support Shanghai; stay below Cancun unless transient storage is required.
+      evmVersion: "shanghai",
       viaIR: true,
       optimizer: {
         enabled: true,

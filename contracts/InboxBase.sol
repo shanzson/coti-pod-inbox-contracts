@@ -49,6 +49,8 @@ contract InboxBase is IInbox, InboxFeeManager {
     error NoCallbackHandler();
     /// @notice Return leg requested but prepaid `callerFee` is zero (nothing to fund the callback).
     error ZeroCallbackBudget();
+    /// @notice Two-way send requires distinct non-zero `callbackSelector` and `errorSelector`.
+    error InvalidTwoWaySelectors();
     error ErrorNotFound();
     error ResponseNotFound();
     error CannotSendToSameChain();
@@ -161,6 +163,9 @@ contract InboxBase is IInbox, InboxFeeManager {
         bytes4 errorSelector,
         uint256 callbackFeeLocalWei
     ) external payable virtual returns (bytes32 requestId) {
+        if (callbackSelector == bytes4(0) || errorSelector == bytes4(0) || callbackSelector == errorSelector) {
+            revert InvalidTwoWaySelectors();
+        }
         uint256 dataSize = abi.encode(methodCall).length;
         (uint256 targetFeeGas, uint256 callerFeeGas) =
             validateAndPrepareTwoWayFees(dataSize, msg.value, callbackFeeLocalWei);

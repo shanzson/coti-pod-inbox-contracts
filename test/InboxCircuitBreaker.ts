@@ -36,8 +36,8 @@ describe("Inbox circuit breaker and oracle guards", { concurrency: 1 }, async fu
           999n,
           deployer,
           { selector: "0x00000000", data: "0x", datatypes: [], datalens: [] },
-          "0x00000000",
-          "0x00000000",
+          "0x12345678",
+          "0x87654321",
           1n,
         ],
         { account: deployer, value: 1_000_000n }
