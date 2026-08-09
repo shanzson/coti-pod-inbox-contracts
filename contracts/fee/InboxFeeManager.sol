@@ -59,10 +59,13 @@ abstract contract InboxFeeManager {
     /// @notice Added to `block.basefee` when sizing fee budgets on EIP-1559 chains.
     uint256 public minPriorityFeeWei;
 
-    /// @notice Floor for the reference gas price (wei). Defaults to {DEFAULT_GAS_PRICE}.
+    /// @notice Floor for the reference gas price (wei). Defaults to {DEFAULT_GAS_PRICE} until admin sets bounds.
+    /// @dev Production deploy must call {setGasPriceBounds} from deployConfig (do not leave storage defaults).
     uint256 public minGasPriceWei = DEFAULT_GAS_PRICE;
 
     /// @notice Ceiling for the reference gas price (wei). Zero disables the ceiling.
+    /// @dev On non-EIP-1559 chains (COTI), deployConfig must set a non-zero ceiling so tip inflation cannot
+    ///      unbound remote gas budgets. EIP-1559 sources may keep zero (basefee + priority path).
     uint256 public maxGasPriceWei;
 
     /// @notice Total native fee was zero.
