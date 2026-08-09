@@ -718,8 +718,12 @@ contract InboxBase is IInbox, InboxFeeManager {
 
     /// @dev Records an encode failure and emits {ErrorReceived}.
     ///      `encodeErr` is truncated to {MAX_ERROR_RETURN_DATA} (same bound as execution returndata).
-    function _recordEncodeError(bytes32 requestId, bytes memory encodeErr) internal {
-        bytes memory errorMessage = _capErrorReturnData(
+    /// @return errorMessage Capped payload stored/emitted (also for system error callbacks).
+    function _recordEncodeError(bytes32 requestId, bytes memory encodeErr)
+        internal
+        returns (bytes memory errorMessage)
+    {
+        errorMessage = _capErrorReturnData(
             encodeErr.length == 0 ? abi.encodePacked("enc") : encodeErr
         );
         Error memory err = Error({
@@ -734,20 +738,39 @@ contract InboxBase is IInbox, InboxFeeManager {
     }
 
     /// @dev Prefix-truncate `data` to at most {MAX_ERROR_RETURN_DATA} bytes.
-    function _capErrorReturnData(bytes memory data) internal pure returns (bytes memory capped) {
+    ///      Mutates `data` length in place (no copy) — safe for temporary encode/call failure buffers.
+    ///      Execution failures must use {_callWithCappedReturnData} so returndata is never fully materialized.
+    function _capErrorReturnData(bytes memory data) internal pure returns (bytes memory) {
         uint256 maxLen = MAX_ERROR_RETURN_DATA;
-        uint256 len = data.length;
-        if (len <= maxLen) {
-            return data;
-        }
-        capped = new bytes(maxLen);
         assembly {
-            // Copy full 32-byte words (maxLen is 256).
-            let src := add(data, 32)
-            let dst := add(capped, 32)
-            for { let offset := 0 } lt(offset, maxLen) { offset := add(offset, 32) } {
-                mstore(add(dst, offset), mload(add(src, offset)))
-            }
+            if gt(mload(data), maxLen) { mstore(data, maxLen) }
+        }
+        return data;
+    }
+
+    /// @dev Low-level call that never retains more than {MAX_ERROR_RETURN_DATA} bytes of returndata.
+    ///      On failure, `returnData` is the first ≤256 bytes (same bound as {_capErrorReturnData}).
+    function _callWithCappedReturnData(address target, uint256 gasBudget, bytes memory callData)
+        internal
+        returns (bool success, bytes memory returnData)
+    {
+        uint256 fullLength;
+        assembly {
+            let dataPtr := add(callData, 32)
+            let dataLen := mload(callData)
+            success := call(gasBudget, target, 0, dataPtr, dataLen, 0, 0)
+            fullLength := returndatasize()
+        }
+
+        if (success) {
+            return (true, new bytes(0));
+        }
+
+        // Cap at copy time — do not load full returndata then {_capErrorReturnData}.
+        uint256 copyLen = fullLength > MAX_ERROR_RETURN_DATA ? MAX_ERROR_RETURN_DATA : fullLength;
+        returnData = new bytes(copyLen);
+        assembly {
+            returndatacopy(add(returnData, 32), 0, copyLen)
         }
     }
 }

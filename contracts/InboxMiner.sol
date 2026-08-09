@@ -335,8 +335,7 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
                 _clearExecutionContext();
                 revert RetryFailedRequestEncodeFailed(_capErrorReturnData(encodeErr));
             }
-            bytes memory cappedEncodeErr = _capErrorReturnData(encodeErr);
-            _recordEncodeError(incomingRequest.requestId, cappedEncodeErr);
+            bytes memory cappedEncodeErr = _recordEncodeError(incomingRequest.requestId, encodeErr);
             _sendSystemErrorCallback(incomingRequest, cappedEncodeErr);
             _clearExecutionContext();
             incomingRequest.executed = true;
@@ -410,31 +409,6 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
         }
         if (maxUserGas != 0 && maxUserGas < gasForCall) {
             gasForCall = maxUserGas;
-        }
-    }
-
-    /// @dev Low-level call that never retains more than {MAX_ERROR_RETURN_DATA} bytes of returndata.
-    ///      On failure, `returnData` is the first ≤256 bytes of returndata.
-    function _callWithCappedReturnData(address target, uint256 gasBudget, bytes memory callData)
-        private
-        returns (bool success, bytes memory returnData)
-    {
-        uint256 fullLength;
-        assembly {
-            let dataPtr := add(callData, 32)
-            let dataLen := mload(callData)
-            success := call(gasBudget, target, 0, dataPtr, dataLen, 0, 0)
-            fullLength := returndatasize()
-        }
-
-        if (success) {
-            return (true, new bytes(0));
-        }
-
-        uint256 copyLen = fullLength > MAX_ERROR_RETURN_DATA ? MAX_ERROR_RETURN_DATA : fullLength;
-        returnData = new bytes(copyLen);
-        assembly {
-            returndatacopy(add(returnData, 32), 0, copyLen)
         }
     }
 }
