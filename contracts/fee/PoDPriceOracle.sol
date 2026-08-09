@@ -93,12 +93,15 @@ contract PoDPriceOracle is PriceOracle, IPodPriceOracle {
         emit ManualPriceUpdated(token, priceUsd);
     }
 
-    /// @notice Clear the manual USD peg for `token` so live/adapter pricing resumes.
+    /// @notice Clear the manual USD peg for `token` and any inbox-visible cached price for that token.
+    /// @dev Must clear {cachedPriceUSD} as well as {manualPrices}; otherwise inbox fee reads can keep a
+    ///      stale cache after the manual peg is removed.
     function clearTokenPriceUSD(address token) external onlyPriceAdmin {
         if (token == address(0)) {
             revert ZeroToken();
         }
         delete manualPrices[token];
+        delete cachedPriceUSD[token];
         emit ManualPriceUpdated(token, 0);
     }
 

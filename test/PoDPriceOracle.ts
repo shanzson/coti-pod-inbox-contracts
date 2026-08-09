@@ -75,6 +75,20 @@ describe("PoDPriceOracle", { concurrency: 1 }, async () => {
     assert.equal(await oracle.read.getLivePrice([localToken]), BAND_ETH);
   });
 
+  it("clearTokenPriceUSD also clears inbox cachedPriceUSD", async () => {
+    const { oracle } = await deploy("band");
+    await oracle.write.setRemoteTokenPriceUSD([usdPerWholeToken18(TESTNET_COTI_USD)], { account: owner });
+    await oracle.write.setTokenPriceUSD([localToken, SCALE], { account: owner });
+    await oracle.write.refreshCache([]);
+    assert.equal(await oracle.read.cachedPriceUSD([localToken]), SCALE);
+
+    await oracle.write.clearTokenPriceUSD([localToken], { account: owner });
+    assert.equal(await oracle.read.manualPrices([localToken]), 0n);
+    assert.equal(await oracle.read.cachedPriceUSD([localToken]), 0n);
+    assert.equal(await oracle.read.getCachedPrice([localToken]), 0n);
+    assert.equal(await oracle.read.getLivePrice([localToken]), BAND_ETH);
+  });
+
   it("refreshCache respects staleness and fetch interval", async () => {
     const feed = await viem.deployContract("MockChainlinkAggregator", [8, ETH_8], { client: c });
     const ad = await viem.deployContract("ChainlinkLiveOracle", [owner, 60n], { client: c });
