@@ -103,4 +103,11 @@ describe("Inbox circuit breaker and oracle guards", { concurrency: 1 }, async fu
       /OraclePriceZero/
     );
   });
+
+  it("setPriceOracle(0) reverts with ZeroPriceOracle", async function () {
+    await assert.rejects(
+      inbox.write.setPriceOracle(["0x0000000000000000000000000000000000000000"], { account: deployer }),
+      /ZeroPriceOracle/
+    );
+  });
 });

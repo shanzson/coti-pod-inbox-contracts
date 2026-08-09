@@ -94,9 +94,13 @@ abstract contract InboxFeeManager {
     error ResponseOutOfBounds(uint256 size, uint256 maxSize);
     /// @notice Reply max was set to zero.
     error MaxReplyMethodCallBytesInvalid(uint32 maxBytes);
+    /// @notice {setPriceOracle} rejected the zero address (would brick fee-validated sends).
+    error ZeroPriceOracle();
 
     /// @notice Owner updated {maxReplyMethodCallBytes}.
     event MaxReplyMethodCallBytesUpdated(uint32 maxBytes);
+    /// @notice Owner pointed the fee manager at a new price oracle.
+    event PriceOracleUpdated(address indexed previous, address indexed current);
 
     /// @notice Send the contract's entire native balance to `to` (typically called by an owner-gated wrapper).
     /// @param to Recipient of accumulated message fees; must not be zero.
@@ -123,12 +127,15 @@ abstract contract InboxFeeManager {
     }
 
     /// @notice Point the fee manager at a price oracle.
-    /// @param priceOracleAddress Oracle contract address.
+    /// @param priceOracleAddress Oracle contract address (must be non-zero).
     function _setPriceOracle(address priceOracleAddress) internal {
-        priceOracle = PriceOracle(priceOracleAddress);
-        if (priceOracleAddress != address(0)) {
-            _validatedOraclePrices();
+        if (priceOracleAddress == address(0)) {
+            revert ZeroPriceOracle();
         }
+        address previous = address(priceOracle);
+        priceOracle = PriceOracle(priceOracleAddress);
+        _validatedOraclePrices();
+        emit PriceOracleUpdated(previous, priceOracleAddress);
     }
 
     /// @notice Configure reference-gas-price parameters used by fee→gas conversion.
