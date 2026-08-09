@@ -85,7 +85,8 @@ const deployHarness = async (): Promise<Harness> => {
 /** Mine one failing request; returns requestId. */
 const mineFailing = async (h: Harness, calldata: Hex, targetFee = 5_000_000n): Promise<`0x${string}`> => {
   const requestId = packRequestId(SOURCE_CHAIN_ID, TARGET_CHAIN_ID, BigInt(h.nextNonce));
-  h.nextNonce += 1;
+  // Coverage instrumentation inflates gas; 15M OOGs and leaves nextNonce desynced
+  // if we bump before the send. Only advance after a successful receipt.
   const hash = await h.inbox.write.batchProcessRequests(
     [
       SOURCE_CHAIN_ID,
@@ -104,13 +105,14 @@ const mineFailing = async (h: Harness, calldata: Hex, targetFee = 5_000_000n): P
         },
       ],
     ],
-    { account: h.deployer, gas: 15_000_000n }
+    { account: h.deployer, gas: 16_000_000n }
   );
   const receipt = await h.publicClient.waitForTransactionReceipt({
     hash,
     ...receiptWaitOptions,
   });
   assert.equal(receipt.status, "success", "mine tx should succeed even when target reverts");
+  h.nextNonce += 1;
   return requestId;
 };
 
@@ -290,7 +292,6 @@ describe("Inbox POD-02 capped returndata (raw bytes)", {
     });
     const ridFail = packRequestId(SOURCE_CHAIN_ID, TARGET_CHAIN_ID, BigInt(h.nextNonce));
     const ridOk = packRequestId(SOURCE_CHAIN_ID, TARGET_CHAIN_ID, BigInt(h.nextNonce + 1));
-    h.nextNonce += 2;
 
     const hash = await h.inbox.write.batchProcessRequests(
       [
@@ -322,13 +323,14 @@ describe("Inbox POD-02 capped returndata (raw bytes)", {
           },
         ],
       ],
-      { account: h.deployer, gas: 15_000_000n }
+      { account: h.deployer, gas: 16_000_000n }
     );
     const receipt = await h.publicClient.waitForTransactionReceipt({
       hash,
       ...receiptWaitOptions,
     });
     assert.equal(receipt.status, "success");
+    h.nextNonce += 2;
 
     const incomingOk = (await h.inbox.read.getIncomingRequest([ridOk])) as { executed: boolean };
     assert.equal(incomingOk.executed, true);

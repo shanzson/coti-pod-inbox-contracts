@@ -109,6 +109,8 @@ export default defineConfig({
       type: "edr-simulated",
       chainId: parseInt(process.env.HARDHAT_CHAIN_ID || "31337"),
       accounts: hardhatTestAccounts().length > 0 ? hardhatTestAccounts() : undefined,
+      // Coverage instrumentation inflates gas; keep headroom for Inbox mines.
+      blockGasLimit: 120_000_000,
     },
     hardhatMainnet: {
       type: "edr-simulated",
