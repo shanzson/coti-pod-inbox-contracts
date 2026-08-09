@@ -32,6 +32,10 @@ contract MpcAbiReEncode {
         IT_STRING
     }
 
+    /// @notice Max encrypted string cells (`itString.signature.length`) accepted per argument.
+    /// @dev Each cell is one `validateCiphertext` precompile; unbounded cells amplify gas (encode OOG).
+    uint256 public constant MAX_IT_STRING_CELLS = 128;
+
     event ValidateCiphertextStart(uint8 dataType, uint256 argLen, bytes32 argHash);
     event ValidateCiphertextSuccess(uint8 dataType);
 
@@ -54,13 +58,18 @@ contract MpcAbiReEncode {
             bytes memory argData = _slice(encodedArgs, cursor, argLen);
             cursor += argLen;
 
-            MpcDataType dataType = MpcDataType(uint8(uint64(data.datatypes[i])));
+            // Reject high-byte datatype malleability (only low byte is meaningful).
+            uint64 rawType = uint64(data.datatypes[i]);
+            require(rawType <= uint64(uint8(type(MpcDataType).max)), "MpcAbiReEncode: bad datatype");
+            require(data.datatypes[i] == bytes8(rawType), "MpcAbiReEncode: datatype alias");
+            MpcDataType dataType = MpcDataType(uint8(rawType));
             (bytes memory encodedArg, bool dynamicType, uint words) = _normalizeArg(argData, dataType);
             processed[i] = encodedArg;
             isDynamic[i] = dynamicType;
             staticWords[i] = words;
             if (dynamicType) {
                 require(encodedArg.length >= 32, "MpcAbiReEncode: invalid dynamic arg");
+                require(encodedArg.length % 32 == 0, "MpcAbiReEncode: unaligned dynamic arg");
                 totalTailSize += (encodedArg.length - 32);
             } else {
                 require(encodedArg.length == words * 32, "MpcAbiReEncode: invalid static arg");
@@ -110,6 +119,29 @@ contract MpcAbiReEncode {
         for (uint i = 0; i < length; i++) {
             result[i] = data[offset + i];
         }
+    }
+
+    /// @dev Cheap ABI shape checks for flat dynamic args. Nested string/bytes arrays only get alignment.
+    function _requireWellFormedDynamic(bytes memory argData, MpcDataType dataType) private pure {
+        uint256 len = argData.length;
+        require(len >= 64 && len % 32 == 0, "MpcAbiReEncode: bad dynamic layout");
+        uint256 offset;
+        uint256 n;
+        assembly {
+            offset := mload(add(argData, 32))
+            n := mload(add(argData, 64))
+        }
+        require(offset == 32, "MpcAbiReEncode: bad dynamic offset");
+        if (dataType == MpcDataType.STRING || dataType == MpcDataType.BYTES) {
+            uint256 padded = (n + 31) / 32 * 32;
+            require(len == 64 + padded, "MpcAbiReEncode: bad bytes/string size");
+        } else if (
+            dataType == MpcDataType.UINT256_ARRAY || dataType == MpcDataType.ADDRESS_ARRAY
+                || dataType == MpcDataType.BYTES32_ARRAY
+        ) {
+            require(len == 64 + n * 32, "MpcAbiReEncode: bad array size");
+        }
+        // STRING_ARRAY / BYTES_ARRAY: nested offsets — alignment + head offset only.
     }
 
     function _normalizeArg(bytes memory argData, MpcDataType dataType)
@@ -178,53 +210,52 @@ contract MpcAbiReEncode {
         }
         if (dataType == MpcDataType.IT_STRING) {
             itString memory itValue = abi.decode(argData, (itString));
+            require(itValue.signature.length <= MAX_IT_STRING_CELLS, "MpcAbiReEncode: itString too long");
+            require(
+                itValue.ciphertext.value.length == itValue.signature.length, "MpcAbiReEncode: itString len mismatch"
+            );
             emit ValidateCiphertextStart(uint8(dataType), argData.length, keccak256(argData));
             gtString memory gtValue = MpcCore.validateCiphertext(itValue);
             emit ValidateCiphertextSuccess(uint8(dataType));
             return (abi.encode(gtValue), true, 0);
         }
         if (
-            dataType == MpcDataType.STRING ||
-            dataType == MpcDataType.BYTES ||
-            dataType == MpcDataType.UINT256_ARRAY ||
-            dataType == MpcDataType.ADDRESS_ARRAY ||
-            dataType == MpcDataType.BYTES32_ARRAY ||
-            dataType == MpcDataType.STRING_ARRAY ||
-            dataType == MpcDataType.BYTES_ARRAY
+            dataType == MpcDataType.STRING || dataType == MpcDataType.BYTES || dataType == MpcDataType.UINT256_ARRAY
+                || dataType == MpcDataType.ADDRESS_ARRAY || dataType == MpcDataType.BYTES32_ARRAY
+                || dataType == MpcDataType.STRING_ARRAY || dataType == MpcDataType.BYTES_ARRAY
         ) {
+            _requireWellFormedDynamic(argData, dataType);
             return (argData, true, 0);
         }
 
         revert("MpcAbiReEncode: unknown type");
     }
 
-    function _copyBytes(
-        bytes memory dest,
-        uint destOffset,
-        bytes memory src,
-        uint srcOffset,
-        uint length
-    ) private pure {
+    /// @dev Word-safe copy; trailing partial words use `mstore8` (Shanghai — no `mcopy`).
+    function _copyBytes(bytes memory dest, uint destOffset, bytes memory src, uint srcOffset, uint length)
+        private
+        pure
+    {
         if (length == 0) {
             return;
         }
+        require(destOffset + length <= dest.length, "MpcAbiReEncode: dest OOB");
+        require(srcOffset + length <= src.length, "MpcAbiReEncode: src OOB");
         assembly {
             let destPtr := add(add(dest, 32), destOffset)
             let srcPtr := add(add(src, 32), srcOffset)
 
             let remaining := length
-            for { } gt(remaining, 31) { } {
+            for {} gt(remaining, 31) {} {
                 mstore(destPtr, mload(srcPtr))
                 destPtr := add(destPtr, 32)
                 srcPtr := add(srcPtr, 32)
                 remaining := sub(remaining, 32)
             }
 
-            if gt(remaining, 0) {
-                let mask := sub(shl(mul(remaining, 8), 1), 1)
-                let srcWord := and(mload(srcPtr), mask)
-                let destWord := and(mload(destPtr), not(mask))
-                mstore(destPtr, or(destWord, srcWord))
+            // Byte-by-byte for the tail — avoids low-byte mask corruption and past-end mstore.
+            for { let i := 0 } lt(i, remaining) { i := add(i, 1) } {
+                mstore8(add(destPtr, i), byte(0, mload(add(srcPtr, i))))
             }
         }
     }
