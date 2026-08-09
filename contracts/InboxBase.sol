@@ -141,7 +141,13 @@ contract InboxBase is IInbox, InboxFeeManager {
     /// @notice Linked one-way return/error leg was received for an original outbound request.
     /// @dev Marks the original request `executed`. This means the return leg was ingested—not that the
     ///      application callback succeeded. Check return-leg `errors` / retries before treating it as final.
+    ///      Prefer {ReturnLegCallbackSucceeded} when you need confirmation the callback call did not revert.
     event IncomingResponseReceived(bytes32 indexed requestId, bytes32 indexed sourceRequestId);
+
+    /// @notice Return-leg target call completed without recording an execution/encode error.
+    /// @dev Emitted after {IncomingResponseReceived} only when the callback/error handler subcall succeeded.
+    ///      Indexers that already key off {IncomingResponseReceived} are unchanged; this is an additive signal.
+    event ReturnLegCallbackSucceeded(bytes32 indexed requestId, bytes32 indexed returnLegRequestId);
 
     /// @notice Request execution or encoding failed.
     event ErrorReceived(bytes32 indexed requestId, uint64 errorCode, bytes errorMessage);

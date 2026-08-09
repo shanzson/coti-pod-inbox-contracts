@@ -269,8 +269,7 @@ This can report completion while the application callback actually reverted and 
 
 **Recommendation:** set the flag only after successful return-leg execution, or rename/document it as "return leg received," not "application handled."
 
-**Resolution (docs):** Accepted as-is. NatSpec on `Request.executed`, `IncomingResponseReceived`, and the miner batch path now state that these mean “return leg received,” not “callback committed.”
-
+**Resolution:** `Request.executed` / `IncomingResponseReceived` remain “return leg received” (indexers unchanged). Additive `ReturnLegCallbackSucceeded` fires only when the return-leg target call did not record an execution/encode error.
 ---
 
 ### POD-10 — `collectFees` sweeps everything, including unspent prepaid budgets (Low)

@@ -141,6 +141,9 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
                     if (originalRequest.requestId != bytes32(0) && !originalRequest.executed) {
                         originalRequest.executed = true;
                         emit IncomingResponseReceived(originalRequestId, incomingRequest.requestId);
+                        if (errors[incomingRequest.requestId].requestId == bytes32(0)) {
+                            emit ReturnLegCallbackSucceeded(originalRequestId, incomingRequest.requestId);
+                        }
                     }
                 }
             }
