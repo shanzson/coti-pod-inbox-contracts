@@ -47,6 +47,8 @@ contract InboxBase is IInbox, InboxFeeManager {
     error NotTwoWayMessage();
     /// @notice {respond} called but the incoming request has no `callbackSelector`.
     error NoCallbackHandler();
+    /// @notice Return leg requested but prepaid `callerFee` is zero (nothing to fund the callback).
+    error ZeroCallbackBudget();
     error ErrorNotFound();
     error ResponseNotFound();
     error CannotSendToSameChain();
@@ -216,6 +218,7 @@ contract InboxBase is IInbox, InboxFeeManager {
         if (incomingRequest.requestId == bytes32(0)) revert RequestNotFound();
         if (msg.sender != incomingRequest.targetContract) revert OnlyTargetCanReply();
         if (!incomingRequest.isTwoWay) revert NotTwoWayMessage();
+        if (incomingRequest.callerFee == 0) revert ZeroCallbackBudget();
         if (isRaise && incomingRequest.errorSelector == bytes4(0)) revert NoErrorHandler();
         if (!isRaise && incomingRequest.callbackSelector == bytes4(0)) revert NoCallbackHandler();
 
@@ -522,6 +525,7 @@ contract InboxBase is IInbox, InboxFeeManager {
     }
 
     /// @dev System-error return leg with an explicit error code (encode failure, miner reject, …).
+    ///      When `callerFee` is zero (typical one-way), records a local {SystemErrorRaised} only — no outbound.
     function _sendSystemErrorCallbackWithCode(
         Request storage incomingRequest,
         uint64 errorCode,
@@ -540,6 +544,14 @@ contract InboxBase is IInbox, InboxFeeManager {
         }
 
         bytes memory payload = abi.encode(errorCode, errorMessage);
+
+        // No prepaid callback budget → surface locally; do not burn a zero-gas return-leg nonce.
+        if (incomingRequest.callerFee == 0) {
+            if (_shouldEmit()) {
+                emit SystemErrorRaised(incomingRequest.requestId, errorCode, payload);
+            }
+            return;
+        }
 
         MpcMethodCall memory errorMethodCall = MpcMethodCall({
             selector: bytes4(0),
