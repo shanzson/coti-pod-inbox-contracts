@@ -9,13 +9,17 @@ import "./BandPriceReader.sol";
 /// @title BandLiveOracle
 /// @notice Band StdReference adapter implementing {IPodPriceOracle}.
 contract BandLiveOracle is IPodPriceOracle, ILivePriceMetaReader, Ownable {
-    /// @notice Default Band quote symbol (USDC/USDT peg).
+    /// @notice Default Band quote symbol (stablecoin peg, typically USDC).
+    /// @dev Band “USD” quotes often settle against a USDC/USDT peg rather than a pure USD index.
+    ///      Operators must treat collateral USD fees as peg-dependent when using this quote.
     bytes32 public constant BAND_QUOTE_USDC = bytes32("USDC");
 
     /// @notice Band StdReference proxy (zero disables reads).
     address public bandStdRef;
 
-    /// @notice Max seconds since update before a read is ignored (`0` = no staleness check).
+    /// @notice Max seconds since update before a read is ignored.
+    /// @dev `0` intentionally disables the age check (ops may rely on Band’s own expiry). Prefer a
+    ///      non-zero value in production unless the StdReference already encodes validity.
     uint256 public maxStaleness;
 
     /// @notice Band symbol pair per token address.
@@ -54,8 +58,7 @@ contract BandLiveOracle is IPodPriceOracle, ILivePriceMetaReader, Ownable {
 
     /// @inheritdoc IPodPriceOracle
     function getLivePrice(address token) external view returns (uint256 priceUsd) {
-        (bool ok, uint256 price) = BandPriceReader.tryReadPrice(bandStdRef, feeds[token], maxStaleness);
-        return ok ? price : 0;
+        return _getLivePrice(token);
     }
 
     /// @inheritdoc IPodPriceOracle
@@ -69,8 +72,8 @@ contract BandLiveOracle is IPodPriceOracle, ILivePriceMetaReader, Ownable {
                 BandPriceReader.tryReadPriceBulk(bandStdRef, feeds[tokenA], feeds[tokenB], maxStaleness);
             return (okA ? a : 0, okB ? b : 0);
         }
-        priceA = this.getLivePrice(tokenA);
-        priceB = this.getLivePrice(tokenB);
+        priceA = _getLivePrice(tokenA);
+        priceB = _getLivePrice(tokenB);
     }
 
     /// @inheritdoc ILivePriceMetaReader
@@ -78,5 +81,10 @@ contract BandLiveOracle is IPodPriceOracle, ILivePriceMetaReader, Ownable {
         (bool ok, uint256 price, uint256 updated) =
             BandPriceReader.tryReadPriceWithMeta(bandStdRef, feeds[token], maxStaleness);
         return ok ? (price, updated) : (0, updated);
+    }
+
+    function _getLivePrice(address token) internal view returns (uint256 priceUsd) {
+        (bool ok, uint256 price) = BandPriceReader.tryReadPrice(bandStdRef, feeds[token], maxStaleness);
+        return ok ? price : 0;
     }
 }

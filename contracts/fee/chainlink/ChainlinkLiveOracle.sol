@@ -9,7 +9,10 @@ import "./ChainlinkPriceReader.sol";
 /// @title ChainlinkLiveOracle
 /// @notice Chainlink Data Feed adapter implementing {IPodPriceOracle}.
 contract ChainlinkLiveOracle is IPodPriceOracle, ILivePriceMetaReader, Ownable {
-    /// @notice Max seconds since `updatedAt` before a read is ignored (`0` = no staleness check).
+    /// @notice Max seconds since `updatedAt` before a read is ignored.
+    /// @dev `0` intentionally disables the age check (ops may rely on the upstream feed’s own
+    ///      validity window). Prefer a non-zero value in production unless the feed already
+    ///      encodes expiry.
     uint256 public maxStaleness;
 
     /// @notice Chainlink aggregator per token address.
@@ -37,9 +40,7 @@ contract ChainlinkLiveOracle is IPodPriceOracle, ILivePriceMetaReader, Ownable {
 
     /// @inheritdoc IPodPriceOracle
     function getLivePrice(address token) external view returns (uint256 priceUsd) {
-        (bool ok, uint256 price) =
-            ChainlinkPriceReader.tryReadPrice(ChainlinkPriceReader.Config({aggregator: aggregators[token]}), maxStaleness);
-        return ok ? price : 0;
+        return _getLivePrice(token);
     }
 
     /// @inheritdoc IPodPriceOracle
@@ -48,8 +49,8 @@ contract ChainlinkLiveOracle is IPodPriceOracle, ILivePriceMetaReader, Ownable {
         view
         returns (uint256 priceA, uint256 priceB)
     {
-        priceA = this.getLivePrice(tokenA);
-        priceB = this.getLivePrice(tokenB);
+        priceA = _getLivePrice(tokenA);
+        priceB = _getLivePrice(tokenB);
     }
 
     /// @inheritdoc ILivePriceMetaReader
@@ -59,5 +60,11 @@ contract ChainlinkLiveOracle is IPodPriceOracle, ILivePriceMetaReader, Ownable {
             maxStaleness
         );
         return ok ? (price, updated) : (0, updated);
+    }
+
+    function _getLivePrice(address token) internal view returns (uint256 priceUsd) {
+        (bool ok, uint256 price) =
+            ChainlinkPriceReader.tryReadPrice(ChainlinkPriceReader.Config({aggregator: aggregators[token]}), maxStaleness);
+        return ok ? price : 0;
     }
 }
