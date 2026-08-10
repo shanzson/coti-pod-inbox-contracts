@@ -142,12 +142,15 @@ contract InboxBase is IInbox, FeeManagerStubBase {
     /// @notice Linked one-way return/error leg was received for an original outbound request.
     /// @dev Marks the original request `executed`. This means the return leg was ingested—not that the
     ///      application callback succeeded. Check return-leg `errors` / retries before treating it as final.
-    ///      Prefer {ReturnLegCallbackSucceeded} when you need confirmation the callback call did not revert.
+    ///      Prefer {ReturnLegCallbackSucceeded} for first-mine callback success (not emitted on retry recovery;
+    ///      see that event's NatSpec and {RetryFailedRequestSuccess}).
     event IncomingResponseReceived(bytes32 indexed requestId, bytes32 indexed sourceRequestId);
 
     /// @notice Return-leg target call completed without recording an execution/encode error.
-    /// @dev Emitted after {IncomingResponseReceived} only when the callback/error handler subcall succeeded.
-    ///      Indexers that already key off {IncomingResponseReceived} are unchanged; this is an additive signal.
+    /// @dev Emitted after {IncomingResponseReceived} only on the initial mine when the callback/error handler
+    ///      subcall succeeded. Not emitted on a later successful {retryFailedRequest} — that path clears the
+    ///      error and emits {RetryFailedRequestSuccess} instead. Indexers that need recovered return legs must
+    ///      also watch that event (or empty `errors`). {IncomingResponseReceived} consumers are unchanged.
     event ReturnLegCallbackSucceeded(bytes32 indexed requestId, bytes32 indexed returnLegRequestId);
 
     /// @notice Request execution or encoding failed.
