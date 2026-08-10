@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
+import { deployTestInbox, mpcAbiReEncodeOf, feeManagerOf } from "../scripts/deploy-test-inbox.js";
 
 const GAS_PRICE_WEI = 1_000_000_000n;
 const SEND_VALUE_WEI = 5_000_000_000_000_000n;
@@ -37,7 +37,7 @@ describe("two-way selector requirements", {
     const [wallet] = await viem.getWalletClients();
     const deployer = wallet.account.address as `0x${string}`;
     const inbox = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
-    await inbox.write.init([deployer, 1000n, mpcAbiReEncodeOf(inbox)], { account: deployer });
+    await inbox.write.init([deployer, 1000n, mpcAbiReEncodeOf(inbox), feeManagerOf(inbox)], { account: deployer });
     await inbox.write.updateMinFeeConfigs([{ ...FEE }, { ...FEE }], { account: deployer });
     const oracle = await viem.deployContract("PriceOracle", [deployer], {
       client: { public: publicClient, wallet },

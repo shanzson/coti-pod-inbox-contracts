@@ -99,7 +99,7 @@ abstract contract InboxEstimateGas is InboxBase {
             revert IInboxMiner.EstimateRejectNotExecutable();
         }
 
-        FeeConfig memory localCaps = localMinFeeConfig;
+        FeeConfig memory localCaps = _localMinFeeConfigMem();
         uint256 weight = MinerRejectLib.structuralSize(mined.methodCall);
         if (weight > localCaps.maxMethodCallBytes) {
             revert MethodCallTooLarge(weight, localCaps.maxMethodCallBytes);

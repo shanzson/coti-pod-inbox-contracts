@@ -45,19 +45,25 @@ const main = async () => {
     envKey: "INBOX_SALT_LABEL",
     configPath: "deployConfig.inboxSalt.label",
   });
-  const { inbox, predictedAddress, alreadyDeployed, txHash } = await deployDeterministicInbox({
+  const { inbox, predictedAddress, alreadyDeployed, txHash, feeManager } = await deployDeterministicInbox({
     viem,
     publicClient,
     walletClient,
     saltLabel,
     deployReEncode: false,
     reEncodeSaltLabel: undefined,
+    feeManagerSaltLabel: requireSaltLabel({
+      fromConfig: deployConfig.feeManagerSalt?.label,
+      envKey: "FEE_MANAGER_SALT_LABEL",
+      configPath: "deployConfig.feeManagerSalt.label",
+    }),
   });
   console.log(
     alreadyDeployed
       ? `[deploy-inbox] Inbox already deployed at deterministic address: ${predictedAddress}`
       : `[deploy-inbox] Inbox deployed at deterministic address: ${inbox.address} (tx ${txHash})`
   );
+  console.log(`[deploy-inbox] FeeManager: ${feeManager}`);
   console.log("[deploy-inbox] Ensuring miner is registered...");
   const minerAdded = await ensureMinerRegistered({
     inbox,
@@ -135,6 +141,7 @@ const main = async () => {
   });
 
   existingChainConfig.inbox = inbox.address;
+  existingChainConfig.feeManager = feeManager;
   existingChainConfig.priceOracle = priceOracleAddress;
   await fs.writeFile(deployConfigPath, `${JSON.stringify(deployConfig, null, 2)}\n`, "utf8");
   console.log("[deploy-inbox] Updated deployConfig.json");

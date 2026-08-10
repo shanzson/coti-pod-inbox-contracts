@@ -1,7 +1,7 @@
 import { encodeFunctionData, zeroHash } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "./oracle-tokens.js";
-import { deployTestInbox, mpcAbiReEncodeOf } from "./deploy-test-inbox.js";
+import { deployTestInbox, mpcAbiReEncodeOf, feeManagerOf } from "./deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
@@ -41,7 +41,7 @@ const main = async () => {
     const inbox = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await inbox.write.init([deployer, chainId, mpcAbiReEncodeOf(inbox)], { account: deployer });
+    await inbox.write.init([deployer, chainId, mpcAbiReEncodeOf(inbox), feeManagerOf(inbox)], { account: deployer });
     await inbox.write.updateMinFeeConfigs([{ ...CONSTANT_FEE }, { ...CONSTANT_FEE }], { account: deployer });
     if (withOracle) {
       const oracle = await viem.deployContract("PriceOracle", [deployer], {

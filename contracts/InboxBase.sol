@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-import "./fee/InboxFeeManager.sol";
+import "./fee/FeeManagerStubBase.sol";
 import "./lib/MinerRejectLib.sol";
 import "./MpcAbiReEncode.sol";
 import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
 
 /// @title InboxBase
 /// @notice Core inbox: outbound requests, inbound execution context, responses, errors, and MPC calldata encoding.
-/// @dev Mixed with {InboxFeeManager}. {InboxEstimateGas} extends this for estimate-mode + miner estimate API.
-contract InboxBase is IInbox, InboxFeeManager {
+/// @dev Fee API via {FeeManagerStubBase} (DELEGATECALL to {FeeManager}). {InboxEstimateGas} extends this.
+contract InboxBase is IInbox, FeeManagerStubBase {
     using MinerRejectLib for MpcMethodCall;
     /// @notice This chain's ID (deploy-time; may differ from `block.chainid` when `_chainId` is non-zero).
     uint256 public chainId;
@@ -162,14 +162,18 @@ contract InboxBase is IInbox, InboxFeeManager {
     /// @param gasRemainingApprox Remaining gas budget from `targetFee` after the subcall (floored at zero).
     event FeeExecutionSettled(bytes32 indexed requestId, uint256 gasUsed, uint256 gasRemainingApprox);
 
-    /// @dev One-time base initializer. Sets `chainId`, optional re-encode helper, and trips the init guard.
+    /// @dev One-time base initializer. Sets `chainId`, helpers, fee defaults, and trips the init guard.
     /// @param _chainId This chain's ID; pass `0` to use `block.chainid`.
     /// @param _mpcAbiReEncode COTI re-encode contract (`address(0)` on non-MPC chains).
-    function _initInboxBase(uint256 _chainId, address _mpcAbiReEncode) internal {
+    /// @param _feeManager Deployed {FeeManager} (required; DELEGATECALL target for fee logic).
+    function _initInboxBase(uint256 _chainId, address _mpcAbiReEncode, address _feeManager) internal {
         if (_initialized) revert AlreadyInitialized();
         _initialized = true;
         chainId = _chainId == 0 ? block.chainid : _chainId;
         mpcAbiReEncode = _mpcAbiReEncode;
+        if (_feeManager == address(0)) revert ModuleNotConfigured(_feeManager);
+        feeManager = _feeManager;
+        _ensureFeeDefaults();
     }
 
     /// @inheritdoc IInbox
@@ -189,12 +193,12 @@ contract InboxBase is IInbox, InboxFeeManager {
         }
         uint256 dataSize = abi.encode(methodCall).length;
         (uint256 targetFeeGas, uint256 callerFeeGas) =
-            validateAndPrepareTwoWayFees(dataSize, msg.value, callbackFeeLocalWei);
+            _validateAndPrepareTwoWayFees(dataSize, msg.value, callbackFeeLocalWei);
         requestId = _sendTwoWayMessage(
             targetChainId, targetContract, methodCall, callbackSelector, errorSelector, targetFeeGas, callerFeeGas
         );
         // Best-effort: must not revert a paid send (EIP-150 63/64 can OOG nested refresh under tight gas).
-        try priceOracle.refreshCache() {} catch {}
+        try priceOracle().refreshCache() {} catch {}
     }
 
     /// @inheritdoc IInbox
@@ -210,12 +214,12 @@ contract InboxBase is IInbox, InboxFeeManager {
             revert OneWayErrorSelectorNotSupported(errorSelector);
         }
         uint256 dataSize = abi.encode(methodCall).length;
-        uint256 targetFeeGas = validateAndPrepareOneWayFees(dataSize, msg.value);
+        uint256 targetFeeGas = _validateAndPrepareOneWayFees(dataSize, msg.value);
         requestId = _sendOneWayMessage(
             targetChainId, targetContract, methodCall, bytes4(0), bytes32(0), targetFeeGas, 0, msg.sender
         );
         // Best-effort: must not revert a paid send (EIP-150 63/64 can OOG nested refresh under tight gas).
-        try priceOracle.refreshCache() {} catch {}
+        try priceOracle().refreshCache() {} catch {}
     }
 
     /// @inheritdoc IInbox
@@ -482,7 +486,7 @@ contract InboxBase is IInbox, InboxFeeManager {
         if (targetContract == address(0)) revert InvalidTargetContract();
         if (requestSender == address(0)) revert InvalidRequestSender();
 
-        FeeConfig memory remoteMax = remoteMinFeeConfig;
+        FeeConfig memory remoteMax = _remoteMinFeeConfigMem();
         uint256 weight = MinerRejectLib.structuralSize(methodCall);
         if (weight > remoteMax.maxMethodCallBytes) {
             revert MethodCallTooLarge(weight, remoteMax.maxMethodCallBytes);
@@ -490,8 +494,9 @@ contract InboxBase is IInbox, InboxFeeManager {
         if (targetFeeGas > remoteMax.maxExecutionGas) {
             revert FeeGasTooHigh(targetFeeGas, remoteMax.maxExecutionGas);
         }
-        if (callerFeeGas > localMinFeeConfig.maxExecutionGas) {
-            revert FeeGasTooHigh(callerFeeGas, localMinFeeConfig.maxExecutionGas);
+        FeeConfig memory localMax = _localMinFeeConfigMem();
+        if (callerFeeGas > localMax.maxExecutionGas) {
+            revert FeeGasTooHigh(callerFeeGas, localMax.maxExecutionGas);
         }
 
         _accumulateEstimateOutboundIfTagged(weight);
@@ -611,7 +616,7 @@ contract InboxBase is IInbox, InboxFeeManager {
     /// @dev Enforce {maxReplyMethodCallBytes} on respond/raise return legs.
     function _requireReplyMethodCallBounded(MpcMethodCall memory methodCall) internal view {
         uint256 weight = MinerRejectLib.structuralSize(methodCall);
-        uint256 maxBytes = maxReplyMethodCallBytes;
+        uint256 maxBytes = maxReplyMethodCallBytes();
         if (weight > maxBytes) {
             revert ResponseOutOfBounds(weight, maxBytes);
         }

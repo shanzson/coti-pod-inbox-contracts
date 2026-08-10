@@ -39,19 +39,25 @@ const main = async () => {
     envKey: "INBOX_SALT_LABEL",
     configPath: "deployConfig.inboxSalt.label",
   });
-  const { inbox, predictedAddress, alreadyDeployed, txHash } = await deployDeterministicInbox({
+  const { inbox, predictedAddress, alreadyDeployed, txHash, feeManager } = await deployDeterministicInbox({
     viem,
     publicClient,
     walletClient,
     saltLabel,
     deployReEncode: true,
     reEncodeSaltLabel: requireSaltLabel({ fromConfig: deployConfig.mpcAbiCodecSalt?.label, envKey: "MPC_ABI_CODEC_SALT_LABEL", configPath: "deployConfig.mpcAbiCodecSalt.label" }),
+    feeManagerSaltLabel: requireSaltLabel({
+      fromConfig: deployConfig.feeManagerSalt?.label,
+      envKey: "FEE_MANAGER_SALT_LABEL",
+      configPath: "deployConfig.feeManagerSalt.label",
+    }),
   });
   console.log(
     alreadyDeployed
       ? `[deploy-inbox-with-executor] Inbox already deployed at deterministic address: ${predictedAddress}`
       : `[deploy-inbox-with-executor] Inbox deployed at deterministic address: ${inbox.address} (tx ${txHash})`
   );
+  console.log(`[deploy-inbox-with-executor] FeeManager: ${feeManager}`);
   console.log("[deploy-inbox-with-executor] Deploying MpcExecutor...");
   const mpcExecutor = await viem.deployContract("MpcExecutor", [inbox.address], {
     client: { public: publicClient, wallet: walletClient },

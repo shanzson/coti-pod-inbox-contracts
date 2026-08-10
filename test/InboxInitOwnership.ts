@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { network } from "hardhat";
-import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
+import { deployTestInbox, mpcAbiReEncodeOf, feeManagerOf } from "../scripts/deploy-test-inbox.js";
 
 const PLACEHOLDER_OWNER = "0x0000000000000000000000000000000000000001";
 
@@ -19,7 +19,7 @@ describe("Inbox init ownership", { concurrency: false, timeout: 120_000 }, () =>
     const before = (await inbox.read.owner()) as `0x${string}`;
     assert.equal(before.toLowerCase(), PLACEHOLDER_OWNER);
 
-    await inbox.write.init([deployer, 1000n, mpcAbiReEncodeOf(inbox)], { account: deployer });
+    await inbox.write.init([deployer, 1000n, mpcAbiReEncodeOf(inbox), feeManagerOf(inbox)], { account: deployer });
 
     const after = (await inbox.read.owner()) as `0x${string}`;
     assert.equal(after.toLowerCase(), deployer.toLowerCase());

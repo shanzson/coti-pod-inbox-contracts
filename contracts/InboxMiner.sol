@@ -42,7 +42,7 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
             revert SourceChainIsThisChain(chainId);
         }
 
-        FeeConfig memory localCaps = localMinFeeConfig;
+        FeeConfig memory localCaps = _localMinFeeConfigMem();
         uint256 maxMethodCallBytes = localCaps.maxMethodCallBytes;
         uint256 maxExecutionGas = localCaps.maxExecutionGas;
 
@@ -215,8 +215,8 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
 
     /// @notice Configure the oracle used for fee conversion.
     /// @param oracle {PriceOracle} address.
-    function setPriceOracle(address oracle) external onlyOwner {
-        _setPriceOracle(oracle);
+    function setPriceOracle(address oracle) public override onlyOwner {
+        super.setPriceOracle(oracle);
     }
 
     /// @notice Configure reference gas-price bounds for fee→gas conversion.
@@ -224,28 +224,29 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
     /// @param minGasPriceWei_ Floor for the reference gas price (must be non-zero).
     /// @param maxGasPriceWei_ Ceiling; zero disables the ceiling.
     function setGasPriceBounds(uint256 minPriorityFeeWei_, uint256 minGasPriceWei_, uint256 maxGasPriceWei_)
-        external
+        public
+        override
         onlyOwner
     {
-        _setGasPriceBounds(minPriorityFeeWei_, minGasPriceWei_, maxGasPriceWei_);
+        super.setGasPriceBounds(minPriorityFeeWei_, minGasPriceWei_, maxGasPriceWei_);
     }
 
     /// @notice Update minimum fee templates for local and remote legs.
     /// @param _local Local leg template.
     /// @param _remote Remote leg template.
-    function updateMinFeeConfigs(FeeConfig memory _local, FeeConfig memory _remote) external onlyOwner {
-        _updateMinFeeConfigs(_local, _remote);
+    function updateMinFeeConfigs(FeeConfig memory _local, FeeConfig memory _remote) public override onlyOwner {
+        super.updateMinFeeConfigs(_local, _remote);
     }
 
     /// @notice Set the respond/raise payload-weight cap (same units as {FeeConfig.maxMethodCallBytes}).
-    function setMaxReplyMethodCallBytes(uint32 maxBytes) external onlyOwner {
-        _setMaxReplyMethodCallBytes(maxBytes);
+    function setMaxReplyMethodCallBytes(uint32 maxBytes) public override onlyOwner {
+        super.setMaxReplyMethodCallBytes(maxBytes);
     }
 
     /// @notice Set max age (seconds) from dest ingest before execution-failed requests terminalize on retry.
     /// @param lifeSeconds `0` disables the lifetime check.
-    function setMaxMessageLife(uint32 lifeSeconds) external onlyOwner {
-        maxMessageLife = lifeSeconds;
+    function setMaxMessageLife(uint32 lifeSeconds) public override onlyOwner {
+        super.setMaxMessageLife(lifeSeconds);
     }
 
     enum IncomingExecKind {
@@ -274,8 +275,8 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
     }
 
     /// @inheritdoc IInboxMiner
-    function collectFees(address payable to) external onlyOwner {
-        _collectFees(to);
+    function collectFees(address payable to) public override(FeeManagerStubBase, IInboxMiner) onlyOwner {
+        super.collectFees(to);
     }
 
     /// @dev Permissionless recovery: anyone may retry an execution-failed request. The retrier pays
@@ -297,7 +298,7 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
         if (!incomingRequest.executed || errorCode != ERROR_CODE_EXECUTION_FAILED) {
             revert RetryFailedRequestNotAFailedRequest();
         }
-        uint32 life = maxMessageLife;
+        uint32 life = maxMessageLife();
         if (life != 0 && block.timestamp > uint256(incomingRequest.timestamp) + uint256(life)) {
             errors[requestId].errorCode = ERROR_CODE_EXPIRED;
             _sendSystemErrorCallbackWithCode(incomingRequest, ERROR_CODE_EXPIRED, "ttl");

@@ -7,7 +7,7 @@ import {
 } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
+import { deployTestInbox, mpcAbiReEncodeOf, feeManagerOf } from "../scripts/deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
@@ -42,7 +42,7 @@ describe("Inbox system-error callback", { concurrency: false, timeout: 600_000 }
     const source = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await source.write.init([deployer, SOURCE_CHAIN_ID, mpcAbiReEncodeOf(source)], { account: deployer });
+    await source.write.init([deployer, SOURCE_CHAIN_ID, mpcAbiReEncodeOf(source), feeManagerOf(source)], { account: deployer });
     await source.write.updateMinFeeConfigs([{ ...CONSTANT_FEE }, { ...CONSTANT_FEE }], {
       account: deployer,
     });
@@ -60,7 +60,7 @@ describe("Inbox system-error callback", { concurrency: false, timeout: 600_000 }
     const target = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await target.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(target)], { account: deployer });
+    await target.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(target), feeManagerOf(target)], { account: deployer });
     await target.write.updateMinFeeConfigs([{ ...CONSTANT_FEE }, { ...CONSTANT_FEE }], {
       account: deployer,
     });

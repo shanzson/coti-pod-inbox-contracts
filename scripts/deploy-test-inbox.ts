@@ -1,6 +1,6 @@
 /**
- * Deploy Inbox + {MpcAbiReEncode} for Hardhat / EDR unit tests (no CreateX).
- * Not a solc "library link" — re-encode is a normal CREATE contract passed into Inbox.init.
+ * Deploy Inbox + {MpcAbiReEncode} + {FeeManager} for Hardhat / EDR unit tests (no CreateX).
+ * Not a solc "library link" — helpers are normal CREATE contracts passed into Inbox.init.
  */
 
 type DeployOpts = Record<string, unknown> & {
@@ -14,26 +14,38 @@ type ViemLike = {
   deployContract: (name: string, args: unknown[], opts?: DeployOpts) => Promise<any>;
 };
 
-const codecByKey = new WeakMap<object, Promise<`0x${string}`>>();
+type HelperBag = { mpcAbiReEncode: `0x${string}`; feeManager: `0x${string}` };
 
-/** Deploy (or reuse) {MpcAbiReEncode}, then deploy Inbox. */
+const helpersByKey = new WeakMap<object, Promise<HelperBag>>();
+
+/** Deploy (or reuse) {MpcAbiReEncode} + {FeeManager}, then deploy Inbox. */
 export const deployTestInbox = async (
   viem: ViemLike,
   opts?: DeployOpts
-): Promise<any & { mpcAbiReEncode: `0x${string}` }> => {
+): Promise<any & HelperBag> => {
   const walletKey = (opts?.client?.wallet ?? viem) as object;
-  let codecPromise = codecByKey.get(walletKey);
-  if (!codecPromise) {
-    codecPromise = (async () => {
-      const codec = await viem.deployContract("MpcAbiReEncode", [], opts);
-      return codec.address as `0x${string}`;
+  let helpersPromise = helpersByKey.get(walletKey);
+  if (!helpersPromise) {
+    helpersPromise = (async () => {
+      const [codec, fee] = await Promise.all([
+        viem.deployContract("MpcAbiReEncode", [], opts),
+        viem.deployContract("FeeManager", [], opts),
+      ]);
+      return {
+        mpcAbiReEncode: codec.address as `0x${string}`,
+        feeManager: fee.address as `0x${string}`,
+      };
     })();
-    codecByKey.set(walletKey, codecPromise);
+    helpersByKey.set(walletKey, helpersPromise);
   }
-  const mpcAbiReEncode = await codecPromise;
+  const helpers = await helpersPromise;
   const inbox = await viem.deployContract("Inbox", [], opts);
   Object.defineProperty(inbox, "mpcAbiReEncode", {
-    value: mpcAbiReEncode,
+    value: helpers.mpcAbiReEncode,
+    enumerable: true,
+  });
+  Object.defineProperty(inbox, "feeManager", {
+    value: helpers.feeManager,
     enumerable: true,
   });
   return inbox as any;
@@ -45,3 +57,22 @@ export const mpcAbiReEncodeOf = (inbox: { mpcAbiReEncode?: `0x${string}` }): `0x
   if (!addr) throw new Error("mpcAbiReEncodeOf: missing address (deploy via deployTestInbox)");
   return addr;
 };
+
+/** Address of the shared test {FeeManager} for a prior {deployTestInbox} call. */
+export const feeManagerOf = (inbox: { feeManager?: `0x${string}` }): `0x${string}` => {
+  const addr = inbox.feeManager;
+  if (!addr) throw new Error("feeManagerOf: missing address (deploy via deployTestInbox)");
+  return addr;
+};
+
+/** Convenience: `[owner, chainId, mpcAbiReEncode, feeManager]` for Inbox.init. */
+export const inboxInitArgs = (
+  inbox: { mpcAbiReEncode?: `0x${string}`; feeManager?: `0x${string}` },
+  owner: `0x${string}`,
+  chainId: bigint
+): [`0x${string}`, bigint, `0x${string}`, `0x${string}`] => [
+  owner,
+  chainId,
+  mpcAbiReEncodeOf(inbox),
+  feeManagerOf(inbox),
+];

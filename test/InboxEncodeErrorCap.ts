@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { toHex } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployTestInbox } from "../scripts/deploy-test-inbox.js";
+import { deployTestInbox, feeManagerOf } from "../scripts/deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
@@ -43,7 +43,10 @@ describe("encode-failure returndata cap", {
       client: { public: publicClient, wallet },
     });
     const inbox = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
-    await inbox.write.init([deployer, TARGET_CHAIN_ID, largeReEncode.address], { account: deployer });
+    await inbox.write.init(
+      [deployer, TARGET_CHAIN_ID, largeReEncode.address, feeManagerOf(inbox)],
+      { account: deployer }
+    );
     await inbox.write.updateMinFeeConfigs([{ ...FEE }, { ...FEE }], { account: deployer });
     await inbox.write.addMiner([deployer], { account: deployer });
 

@@ -114,10 +114,12 @@ export type FeeConfigJson = {
 type DeployConfig = {
   inboxSalt?: { label?: string; [key: string]: unknown };
   mpcAbiCodecSalt?: { label?: string; [key: string]: unknown };
+  feeManagerSalt?: { label?: string; [key: string]: unknown };
   chains: Record<
     string,
     {
       inbox?: string;
+      feeManager?: string;
       cotiExecutor?: string;
       priceOracle?: string;
       /** Min-fee templates for this chain's inbox (local = this chain, remote = paired chain). */
@@ -763,11 +765,14 @@ export const deployDeterministicInbox = async (params: {
   deployReEncode?: boolean;
   /** From deployConfig (`mpcAbiCodecSalt.label`). Required when deployReEncode. */
   reEncodeSaltLabel?: string;
+  /** From deployConfig (`feeManagerSalt.label`). Required — FeeManager is deployed on every chain. */
+  feeManagerSaltLabel: string;
 }): Promise<
   DeployInboxDeterministicResult & {
     inbox: any;
     deployer: `0x${string}`;
     mpcAbiReEncode: Address;
+    feeManager: Address;
   }
 > => {
   const deployer = await resolveDeployerAddress(params.walletClient);
@@ -806,6 +811,36 @@ export const deployDeterministicInbox = async (params: {
     mpcAbiReEncode = getAddress(codecDeploy.address);
   }
 
+  if (!params.feeManagerSaltLabel?.trim()) {
+    throw new Error(
+      "deployDeterministicInbox: feeManagerSaltLabel required (deployConfig.feeManagerSalt.label)"
+    );
+  }
+  const feeManagerPath = path.resolve(
+    process.cwd(),
+    "artifacts/contracts/fee/FeeManager.sol/FeeManager.json"
+  );
+  let feeBytecode: `0x${string}` | undefined;
+  try {
+    const json = JSON.parse(await fs.readFile(feeManagerPath, "utf8")) as { bytecode?: string };
+    if (json.bytecode?.startsWith("0x")) {
+      feeBytecode = json.bytecode as `0x${string}`;
+    }
+  } catch {
+    // missing
+  }
+  if (!feeBytecode) {
+    throw new Error("deployDeterministicInbox: FeeManager artifact missing (compile first)");
+  }
+  const feeDeploy = await deployCreate3Deterministic({
+    publicClient: params.publicClient,
+    walletClient: params.walletClient,
+    deployer,
+    bytecode: feeBytecode,
+    saltLabel: params.feeManagerSaltLabel,
+  });
+  const feeManager = getAddress(feeDeploy.address);
+
   const artifact = await readInboxArtifact();
 
   const result = await deployInboxViaCreateX({
@@ -816,6 +851,7 @@ export const deployDeterministicInbox = async (params: {
     artifact,
     saltLabel: params.saltLabel,
     mpcAbiReEncode,
+    feeManager,
   });
   const inbox = await params.viem.getContractAt("Inbox", result.address, {
     client: { public: params.publicClient, wallet: params.walletClient },
@@ -838,6 +874,7 @@ export const deployDeterministicInbox = async (params: {
     inbox,
     deployer,
     mpcAbiReEncode,
+    feeManager,
   };
 };
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
+import { deployTestInbox, mpcAbiReEncodeOf, feeManagerOf } from "../scripts/deploy-test-inbox.js";
 
 describe("Inbox circuit breaker and oracle guards", { concurrency: 1 }, async function () {
   const { viem } = await network.connect({ network: "hardhat" });
@@ -16,7 +16,7 @@ describe("Inbox circuit breaker and oracle guards", { concurrency: 1 }, async fu
     inbox = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await inbox.write.init([deployer, 0n, mpcAbiReEncodeOf(inbox)], { account: deployer });
+    await inbox.write.init([deployer, 0n, mpcAbiReEncodeOf(inbox), feeManagerOf(inbox)], { account: deployer });
     await inbox.write.addMiner([deployer], { account: deployer });
   });
 
@@ -33,7 +33,7 @@ describe("Inbox circuit breaker and oracle guards", { concurrency: 1 }, async fu
     const pausedInbox = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await pausedInbox.write.init([deployer, 0n, mpcAbiReEncodeOf(pausedInbox)], { account: deployer });
+    await pausedInbox.write.init([deployer, 0n, mpcAbiReEncodeOf(pausedInbox), feeManagerOf(pausedInbox)], { account: deployer });
     const fee = {
       constantFee: 1n,
       gasPerByte: 0n,

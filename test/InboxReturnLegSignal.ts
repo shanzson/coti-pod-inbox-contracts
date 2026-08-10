@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { decodeEventLog, encodeFunctionData, toFunctionSelector, toHex } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
+import { deployTestInbox, mpcAbiReEncodeOf, feeManagerOf } from "../scripts/deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
@@ -49,7 +49,7 @@ describe("return-leg callback success signal", {
     const deployer = wallet.account.address as `0x${string}`;
 
     const source = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
-    await source.write.init([deployer, SOURCE_CHAIN_ID, mpcAbiReEncodeOf(source)], {
+    await source.write.init([deployer, SOURCE_CHAIN_ID, mpcAbiReEncodeOf(source), feeManagerOf(source)], {
       account: deployer,
     });
     await source.write.updateMinFeeConfigs([{ ...FEE }, { ...FEE }], { account: deployer });

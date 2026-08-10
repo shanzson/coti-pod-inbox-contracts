@@ -19,16 +19,20 @@ contract Inbox is InboxMiner, Initializable {
     ///      After atomic init, owner must be the intended admin (deploy scripts assert `owner() != address(1)`).
     constructor() Ownable(address(1)) {}
 
-    /// @notice One-time initializer: sets `chainId`, owner, and optional MPC re-encode helper.
+    /// @notice One-time initializer: sets `chainId`, owner, and DELEGATECALL helpers.
     /// @dev Intended to run atomically inside CreateX `deployCreate3AndInit` (no front-run window).
     /// @param initialOwner Address that becomes the {Ownable} owner (typically the deployer EOA).
     /// @param _chainId This chain's ID; pass `0` to use `block.chainid`.
     /// @param _mpcAbiReEncode COTI {MpcAbiReEncode} address, or `address(0)` on non-MPC chains.
-    function init(address initialOwner, uint256 _chainId, address _mpcAbiReEncode) external initializer {
+    /// @param _feeManager Deployed {FeeManager} (required on every chain).
+    function init(address initialOwner, uint256 _chainId, address _mpcAbiReEncode, address _feeManager)
+        external
+        initializer
+    {
         if (initialOwner == address(0)) {
             revert OwnableInvalidOwner(initialOwner);
         }
-        _initInboxBase(_chainId, _mpcAbiReEncode);
+        _initInboxBase(_chainId, _mpcAbiReEncode, _feeManager);
         _transferOwnership(initialOwner);
     }
 

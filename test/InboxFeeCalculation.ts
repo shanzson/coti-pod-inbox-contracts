@@ -8,7 +8,7 @@ import {
   usdPerWholeToken18,
 } from "../scripts/deploy-utils.js";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
+import { deployTestInbox, mpcAbiReEncodeOf, feeManagerOf } from "../scripts/deploy-test-inbox.js";
 
 /** Same as `mpc-test-utils.receiptWaitOptions` — avoid importing full mpc-test-utils (coti-ethers, etc.) in this file. */
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
@@ -200,7 +200,7 @@ describe(
       const inbox = await deployTestInbox(viem, {
         client: { public: publicClient, wallet },
       });
-      await inbox.write.init([deployer, 0n, mpcAbiReEncodeOf(inbox)], { account: deployer });
+      await inbox.write.init([deployer, 0n, mpcAbiReEncodeOf(inbox), feeManagerOf(inbox)], { account: deployer });
       const oracle = await viem.deployContract("PriceOracle", [deployer], {
         client: { public: publicClient, wallet },
       });

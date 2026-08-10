@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
+import { deployTestInbox, mpcAbiReEncodeOf, feeManagerOf } from "../scripts/deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 const TARGET_CHAIN_ID = 1001n;
@@ -39,7 +39,7 @@ describe("Inbox one-way errorSelector", { concurrency: false, timeout: 600_000 }
     const inbox = await deployTestInbox(viem, {
       client: { public: publicClient, wallet },
     });
-    await inbox.write.init([deployer, 1000n, mpcAbiReEncodeOf(inbox)], { account: deployer });
+    await inbox.write.init([deployer, 1000n, mpcAbiReEncodeOf(inbox), feeManagerOf(inbox)], { account: deployer });
     await inbox.write.updateMinFeeConfigs([{ ...CONSTANT_FEE }, { ...CONSTANT_FEE }], {
       account: deployer,
     });

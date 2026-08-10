@@ -6,7 +6,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 /// @title InboxFeeQuoter
 /// @notice Off-chain / UI fee quotes without bloating Inbox create bytecode.
 contract InboxFeeQuoter {
-    /// @dev Mirrors {InboxFeeManager.FeeConfig} packing.
+    /// @dev Mirrors {LibFeeStorage.FeeConfig} / Inbox fee stub packing.
     struct FeeConfig {
         uint32 constantFee;
         uint32 gasPerByte;

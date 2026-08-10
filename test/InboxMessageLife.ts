@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { encodeFunctionData, toHex } from "viem";
 import { network } from "hardhat";
 import { oracleTokensForChain } from "../scripts/oracle-tokens.js";
-import { deployTestInbox, mpcAbiReEncodeOf } from "../scripts/deploy-test-inbox.js";
+import { deployTestInbox, mpcAbiReEncodeOf, feeManagerOf } from "../scripts/deploy-test-inbox.js";
 
 const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
@@ -42,7 +42,7 @@ describe("maxMessageLife terminalization", {
     const deployer = wallet.account.address as `0x${string}`;
 
     const inbox = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
-    await inbox.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(inbox)], { account: deployer });
+    await inbox.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(inbox), feeManagerOf(inbox)], { account: deployer });
     await inbox.write.updateMinFeeConfigs([{ ...FEE }, { ...FEE }], { account: deployer });
     await inbox.write.addMiner([deployer], { account: deployer });
     await inbox.write.setMaxMessageLife([Number(MESSAGE_LIFE_SECONDS)], { account: deployer });

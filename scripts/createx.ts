@@ -71,7 +71,7 @@ export const CREATEX_ABI = [
  * - 21st byte = 0x00 => cross-chain redeploy protection DISABLED, so `block.chainid` is NOT mixed
  *   into the guarded salt and the resulting address is identical on every chain.
  * - Last 11 bytes = deterministic entropy derived from the caller-supplied salt `label`
- *   (SoT: `deployConfig.*.yaml` `inboxSalt.label` / `mpcAbiCodecSalt.label` — never hardcode here).
+ *   (SoT: `deployConfig.*.yaml` `inboxSalt.label` / `mpcAbiCodecSalt.label` / `feeManagerSalt.label` — never hardcode here).
  */
 export const buildInboxSalt = (deployer: Address, label: string): Hex => {
   if (!label.trim()) {
@@ -146,6 +146,10 @@ export type DeployInboxDeterministicParams = {
    * Defaults to zero address when omitted.
    */
   mpcAbiReEncode?: Address;
+  /**
+   * {FeeManager} address for Inbox.init (required on every chain).
+   */
+  feeManager: Address;
 };
 
 export type DeployInboxDeterministicResult = {
@@ -222,7 +226,7 @@ export const deployCreate3Deterministic = async (
 export const deployInboxDeterministic = async (
   params: DeployInboxDeterministicParams
 ): Promise<DeployInboxDeterministicResult> => {
-  const { publicClient, walletClient, deployer, chainId, artifact, saltLabel, mpcAbiReEncode } =
+  const { publicClient, walletClient, deployer, chainId, artifact, saltLabel, mpcAbiReEncode, feeManager } =
     params;
 
   if (!(await isCreateXAvailable(publicClient))) {
@@ -237,6 +241,10 @@ export const deployInboxDeterministic = async (
     );
   }
 
+  if (!feeManager || feeManager === ("0x0000000000000000000000000000000000000000" as Address)) {
+    throw new Error("deployInboxDeterministic: feeManager address is required");
+  }
+
   const salt = buildInboxSalt(deployer, saltLabel);
   const predictedAddress = await precomputeCreate3Address(publicClient, deployer, salt);
 
@@ -247,7 +255,12 @@ export const deployInboxDeterministic = async (
   const initData = encodeFunctionData({
     abi: artifact.abi,
     functionName: "init",
-    args: [deployer, chainId, mpcAbiReEncode ?? ("0x0000000000000000000000000000000000000000" as Address)],
+    args: [
+      deployer,
+      chainId,
+      mpcAbiReEncode ?? ("0x0000000000000000000000000000000000000000" as Address),
+      feeManager,
+    ],
   });
 
   // Simulate first (read-only): catches reverts and confirms the returned address matches.
