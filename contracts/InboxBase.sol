@@ -707,17 +707,35 @@ contract InboxBase is IInbox, FeeManagerStubBase {
         if (!success) {
             return (false, new bytes(0), ret);
         }
-        // abi.decode can revert on malformed returndata; catch so the batch path stays non-reverting.
-        try this.decodeReEncodeReturn(ret) returns (bytes memory decoded) {
-            return (true, decoded, new bytes(0));
-        } catch (bytes memory decodeErr) {
-            return (false, new bytes(0), decodeErr);
+        // abi.decode can revert on malformed returndata; assembly decode keeps the batch path non-reverting
+        // without an external try/catch helper (create-size).
+        (bool decodedOk, bytes memory decoded) = _tryDecodeAbiBytes(ret);
+        if (!decodedOk) {
+            return (false, new bytes(0), ret);
         }
+        return (true, decoded, new bytes(0));
     }
 
-    /// @dev External pure helper so {_safeEncodeMethodCall} can try/catch a failed `abi.decode(ret, (bytes))`.
-    function decodeReEncodeReturn(bytes memory ret) external pure returns (bytes memory) {
-        return abi.decode(ret, (bytes));
+    /// @dev Non-reverting `abi.decode(ret, (bytes))` for re-encode returndata.
+    ///      Returns a pointer into `ret` (no copy) when layout is the standard `abi.encode(bytes)` shape.
+    function _tryDecodeAbiBytes(bytes memory ret) private pure returns (bool ok, bytes memory decoded) {
+        assembly ("memory-safe") {
+            let retLen := mload(ret)
+            // Need offset + length words.
+            if gt(retLen, 0x3f) {
+                let dataPtr := add(ret, 0x20)
+                // Standard abi.encode(bytes) uses offset 0x20; reject other layouts to keep this tiny.
+                if eq(mload(dataPtr), 0x20) {
+                    let len := mload(add(dataPtr, 0x20))
+                    // Content must fit (ignore ABI right-padding).
+                    if iszero(gt(add(0x40, len), retLen)) {
+                        ok := 1
+                        // `bytes` memory layout is length || data — already at offset 0x20 of the payload.
+                        decoded := add(dataPtr, 0x20)
+                    }
+                }
+            }
+        }
     }
 
     function _delegateReEncodeWithGt(MpcMethodCall memory methodCall) private returns (bytes memory) {
