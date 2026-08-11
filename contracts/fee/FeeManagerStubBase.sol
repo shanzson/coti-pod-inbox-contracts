@@ -122,6 +122,37 @@ abstract contract FeeManagerStubBase is ModuleCallBase {
         return 2_000_000_000 wei;
     }
 
+    /// @notice Rough local-token wei cost at `gasPrice` for a two-way send (PoD / UI / {PodERC20.estimateFee}).
+    /// @dev Same math as {InboxFeeQuoter}; kept on Inbox so apps keep calling one address after the FeeManager split.
+    function calculateTwoWayFeeRequiredInLocalToken(
+        uint256 remoteMethodCallSize,
+        uint256 callBackMethodCallSize,
+        uint256 remoteMethodExecutionGas,
+        uint256 callBackMethodExecutionGas,
+        uint256 gasPrice
+    ) public view returns (uint256 targetFeeLocalWei, uint256 callerFeeLocalWei) {
+        LibFeeStorage.Layout storage $ = LibFeeStorage.get();
+        PriceOracle oracle = $.priceOracle;
+        if (address(oracle) == address(0)) revert FeeManager.OracleNotConfigured();
+        (uint256 localTokenPrice, uint256 remoteTokenPrice) = oracle.getPricesUSD();
+        if (localTokenPrice == 0 || remoteTokenPrice == 0) revert FeeManager.OraclePriceZero();
+
+        LibFeeStorage.FeeConfig memory localMin = $.localMinFeeConfig;
+        LibFeeStorage.FeeConfig memory remoteMin = $.remoteMinFeeConfig;
+
+        uint256 targetGasRemoteUnits = _expectedMinFeeGasUnits(remoteMethodCallSize, remoteMin) + remoteMethodExecutionGas;
+        uint256 callerGasLocalUnits = _expectedMinFeeGasUnits(callBackMethodCallSize, localMin) + callBackMethodExecutionGas;
+        // ceil mulDiv for skew invert: gas * div / mul (matches InboxFeeQuoter Rounding.Ceil)
+        targetGasRemoteUnits = (targetGasRemoteUnits * uint256(remoteMin.gasPriceDiv) + uint256(remoteMin.gasPriceMul) - 1)
+            / uint256(remoteMin.gasPriceMul);
+        callerGasLocalUnits = (callerGasLocalUnits * uint256(localMin.gasPriceDiv) + uint256(localMin.gasPriceMul) - 1)
+            / uint256(localMin.gasPriceMul);
+        uint256 targetGasLocalUnits =
+            (targetGasRemoteUnits * remoteTokenPrice + localTokenPrice - 1) / localTokenPrice;
+        targetFeeLocalWei = targetGasLocalUnits * gasPrice;
+        callerFeeLocalWei = callerGasLocalUnits * gasPrice;
+    }
+
     // ─── Admin stubs (override with onlyOwner in InboxMiner) ─────────────────
 
     function setPriceOracle(address oracle) public virtual {
@@ -200,6 +231,20 @@ abstract contract FeeManagerStubBase is ModuleCallBase {
     function _remoteMinFeeConfigMem() internal view returns (FeeConfig memory c) {
         LibFeeStorage.FeeConfig memory lib = LibFeeStorage.get().remoteMinFeeConfig;
         return _fromLib(lib);
+    }
+
+    /// @dev Same packing as {InboxFeeQuoter._expectedMinFee}.
+    function _expectedMinFeeGasUnits(uint256 dataSize, LibFeeStorage.FeeConfig memory feeConfig)
+        private
+        pure
+        returns (uint256)
+    {
+        if (feeConfig.constantFee > 0) {
+            return uint256(feeConfig.constantFee);
+        }
+        uint256 gasUnits = (dataSize * uint256(feeConfig.gasPerByte)) + uint256(feeConfig.callbackExecutionGas)
+            + (uint256(feeConfig.errorLength) * uint256(feeConfig.gasPerByte));
+        return gasUnits * (10000 + uint256(feeConfig.bufferRatioX10000)) / 10000;
     }
 
     function _toLib(FeeConfig memory c) private pure returns (LibFeeStorage.FeeConfig memory) {

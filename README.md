@@ -40,9 +40,17 @@ Local installs use `"@coti-io/coti-contracts": "1.3.5"` from npm.
 ```bash
 npm install
 npx hardhat compile
+npm test                 # batched Hardhat (8GB heap) — preferred locally + CI
+npm run test:all         # single-process full suite
 npm run test:inbox-events
 npm run test:inbox-fee
+npm run check:bytecode-size
 ```
+
+Hardhat suites use `NODE_OPTIONS=--max-old-space-size=8192` to avoid Node OOM during compile/test.
+Default `npm test` runs **batched** processes (`test:batched`) because a single mega-process can flake under memory pressure; use `test:all` only when you intentionally want one runner.
+
+GitHub Actions (`.github/workflows/ci.yml`) compiles, checks bytecode size, and runs `npm test`. On push to `main`, if secret `PEI_DISPATCH_PAT` is set, it `repository_dispatch`es `pod-contracts-changed` to **pod-ecosystem-integration** so ecosystem in-mem/sim jobs re-run against this SHA.
 
 For full-stack work (inbox + dApps + E2E tests), open the **pod-ecosystem-integration** workspace.
 
