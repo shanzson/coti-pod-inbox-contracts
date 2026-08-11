@@ -52,6 +52,8 @@ Default `npm test` runs **batched** processes (`test:batched`) because a single 
 
 GitHub Actions (`.github/workflows/ci.yml`) compiles, checks bytecode size, and runs `npm test`. On push to `main`, if secret `PEI_DISPATCH_PAT` is set, it `repository_dispatch`es `pod-contracts-changed` to **pod-ecosystem-integration** so ecosystem in-mem/sim jobs re-run against this SHA.
 
+**CI/CD secrets and how to create them:** see the canonical guide in PEI — [docs/CI-CD.md](https://github.com/coti-io/pod-ecosystem-integration/blob/main/docs/CI-CD.md) (this repo only needs `PEI_DISPATCH_PAT`).
+
 For full-stack work (inbox + dApps + E2E tests), open the **pod-ecosystem-integration** workspace.
 
 ## Deploy / init
