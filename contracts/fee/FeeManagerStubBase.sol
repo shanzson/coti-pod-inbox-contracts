@@ -123,7 +123,7 @@ abstract contract FeeManagerStubBase is ModuleCallBase {
     }
 
     /// @notice Rough local-token wei cost at `gasPrice` for a two-way send (PoD / UI / {PodERC20.estimateFee}).
-    /// @dev Same math as {InboxFeeQuoter}; kept on Inbox so apps keep calling one address after the FeeManager split.
+    /// @dev Same math as {InboxFeeQuoter}; lean view on Inbox (views cannot DELEGATECALL {FeeManager}).
     function calculateTwoWayFeeRequiredInLocalToken(
         uint256 remoteMethodCallSize,
         uint256 callBackMethodCallSize,
@@ -137,19 +137,17 @@ abstract contract FeeManagerStubBase is ModuleCallBase {
         (uint256 localTokenPrice, uint256 remoteTokenPrice) = oracle.getPricesUSD();
         if (localTokenPrice == 0 || remoteTokenPrice == 0) revert FeeManager.OraclePriceZero();
 
-        LibFeeStorage.FeeConfig memory localMin = $.localMinFeeConfig;
-        LibFeeStorage.FeeConfig memory remoteMin = $.remoteMinFeeConfig;
+        FeeConfig memory localMin = _fromLib($.localMinFeeConfig);
+        FeeConfig memory remoteMin = _fromLib($.remoteMinFeeConfig);
 
+        // ceil: gas * div / mul (skew invert) and remote→local price (matches InboxFeeQuoter Rounding.Ceil)
         uint256 targetGasRemoteUnits = _expectedMinFeeGasUnits(remoteMethodCallSize, remoteMin) + remoteMethodExecutionGas;
+        uint256 mul = remoteMin.gasPriceMul;
+        targetGasRemoteUnits = (targetGasRemoteUnits * uint256(remoteMin.gasPriceDiv) + mul - 1) / mul;
         uint256 callerGasLocalUnits = _expectedMinFeeGasUnits(callBackMethodCallSize, localMin) + callBackMethodExecutionGas;
-        // ceil mulDiv for skew invert: gas * div / mul (matches InboxFeeQuoter Rounding.Ceil)
-        targetGasRemoteUnits = (targetGasRemoteUnits * uint256(remoteMin.gasPriceDiv) + uint256(remoteMin.gasPriceMul) - 1)
-            / uint256(remoteMin.gasPriceMul);
-        callerGasLocalUnits = (callerGasLocalUnits * uint256(localMin.gasPriceDiv) + uint256(localMin.gasPriceMul) - 1)
-            / uint256(localMin.gasPriceMul);
-        uint256 targetGasLocalUnits =
-            (targetGasRemoteUnits * remoteTokenPrice + localTokenPrice - 1) / localTokenPrice;
-        targetFeeLocalWei = targetGasLocalUnits * gasPrice;
+        mul = localMin.gasPriceMul;
+        callerGasLocalUnits = (callerGasLocalUnits * uint256(localMin.gasPriceDiv) + mul - 1) / mul;
+        targetFeeLocalWei = ((targetGasRemoteUnits * remoteTokenPrice + localTokenPrice - 1) / localTokenPrice) * gasPrice;
         callerFeeLocalWei = callerGasLocalUnits * gasPrice;
     }
 
@@ -224,21 +222,15 @@ abstract contract FeeManagerStubBase is ModuleCallBase {
 
     /// @dev Memory copy of local fee config for admission caps (avoids multi-SLOAD public getter).
     function _localMinFeeConfigMem() internal view returns (FeeConfig memory c) {
-        LibFeeStorage.FeeConfig memory lib = LibFeeStorage.get().localMinFeeConfig;
-        return _fromLib(lib);
+        return _fromLib(LibFeeStorage.get().localMinFeeConfig);
     }
 
     function _remoteMinFeeConfigMem() internal view returns (FeeConfig memory c) {
-        LibFeeStorage.FeeConfig memory lib = LibFeeStorage.get().remoteMinFeeConfig;
-        return _fromLib(lib);
+        return _fromLib(LibFeeStorage.get().remoteMinFeeConfig);
     }
 
-    /// @dev Same packing as {InboxFeeQuoter._expectedMinFee}.
-    function _expectedMinFeeGasUnits(uint256 dataSize, LibFeeStorage.FeeConfig memory feeConfig)
-        private
-        pure
-        returns (uint256)
-    {
+    /// @dev Same packing as {InboxFeeQuoter._expectedMinFee} / {FeeManager.expectedMinFee}.
+    function _expectedMinFeeGasUnits(uint256 dataSize, FeeConfig memory feeConfig) private pure returns (uint256) {
         if (feeConfig.constantFee > 0) {
             return uint256(feeConfig.constantFee);
         }
@@ -247,31 +239,16 @@ abstract contract FeeManagerStubBase is ModuleCallBase {
         return gasUnits * (10000 + uint256(feeConfig.bufferRatioX10000)) / 10000;
     }
 
-    function _toLib(FeeConfig memory c) private pure returns (LibFeeStorage.FeeConfig memory) {
-        return LibFeeStorage.FeeConfig({
-            constantFee: c.constantFee,
-            gasPerByte: c.gasPerByte,
-            callbackExecutionGas: c.callbackExecutionGas,
-            errorLength: c.errorLength,
-            bufferRatioX10000: c.bufferRatioX10000,
-            maxMethodCallBytes: c.maxMethodCallBytes,
-            maxExecutionGas: c.maxExecutionGas,
-            gasPriceMul: c.gasPriceMul,
-            gasPriceDiv: c.gasPriceDiv
-        });
+    /// @dev Identical layout to {LibFeeStorage.FeeConfig} — pointer alias, no field copy (create-size).
+    function _toLib(FeeConfig memory c) private pure returns (LibFeeStorage.FeeConfig memory r) {
+        assembly ("memory-safe") {
+            r := c
+        }
     }
 
-    function _fromLib(LibFeeStorage.FeeConfig memory c) private pure returns (FeeConfig memory) {
-        return FeeConfig({
-            constantFee: c.constantFee,
-            gasPerByte: c.gasPerByte,
-            callbackExecutionGas: c.callbackExecutionGas,
-            errorLength: c.errorLength,
-            bufferRatioX10000: c.bufferRatioX10000,
-            maxMethodCallBytes: c.maxMethodCallBytes,
-            maxExecutionGas: c.maxExecutionGas,
-            gasPriceMul: c.gasPriceMul,
-            gasPriceDiv: c.gasPriceDiv
-        });
+    function _fromLib(LibFeeStorage.FeeConfig memory c) private pure returns (FeeConfig memory r) {
+        assembly ("memory-safe") {
+            r := c
+        }
     }
 }
