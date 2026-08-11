@@ -1,5 +1,5 @@
 import { network } from "hardhat";
-import { encodeFunctionData, getAddress } from "viem";
+import { encodeFunctionData, getAddress, zeroAddress, type Address } from "viem";
 import {
   buildInboxSalt,
   computeGuardedSalt,
@@ -9,7 +9,7 @@ import {
   isCreateXAvailable,
   precomputeCreate3Address,
 } from "./createx.js";
-import { getViemClients, readInboxArtifact, resolveDeployerAddress } from "./deploy-utils.js";
+import { getViemClients, readDeployConfig, readInboxArtifact, resolveDeployerAddress } from "./deploy-utils.js";
 
 /**
  * Read-only determinism check for the CreateX-deployed Inbox.
@@ -18,8 +18,55 @@ import { getViemClients, readInboxArtifact, resolveDeployerAddress } from "./dep
  * CreateX is present and the address is empty) simulates `deployCreate3AndInit` via `eth_call` to
  * confirm the simulated address equals the precomputed one and that `init` would not revert.
  *
+ * `Inbox.init` requires `(owner, chainId, mpcAbiReEncode, feeManager)`. FeeManager is resolved
+ * without deploying (read-only):
+ *   1. `FEE_MANAGER_ADDRESS` env, or
+ *   2. `deployConfig.chains[<chainId>].feeManager`, or
+ *   3. CREATE3-predicted address from `FEE_MANAGER_SALT_LABEL` / `deployConfig.feeManagerSalt.label`
+ *
+ * Optional: `MPC_ABI_REENCODE_ADDRESS` (defaults to zero — valid on non-MPC chains).
+ *
  * Usage: `npx hardhat run scripts/check-inbox-determinism.ts --network avalancheFuji`
+ *
+ * CI note: this package depends on `file:../coti-contracts`; workflows must check out
+ * `coti-io/coti-contracts` as a sibling (see `.github/workflows/ci.yml`).
  */
+const resolveFeeManager = async (params: {
+  deployer: Address;
+  chainId: number;
+  publicClient: Awaited<ReturnType<typeof getViemClients>>["publicClient"];
+}): Promise<Address> => {
+  const fromEnv = process.env.FEE_MANAGER_ADDRESS?.trim();
+  if (fromEnv) {
+    return getAddress(fromEnv as Address);
+  }
+
+  let deployConfig: Awaited<ReturnType<typeof readDeployConfig>> | undefined;
+  try {
+    deployConfig = await readDeployConfig();
+  } catch {
+    deployConfig = undefined;
+  }
+
+  const fromChain = deployConfig?.chains?.[String(params.chainId)]?.feeManager?.trim();
+  if (fromChain) {
+    return getAddress(fromChain as Address);
+  }
+
+  const saltLabel =
+    process.env.FEE_MANAGER_SALT_LABEL?.trim() || deployConfig?.feeManagerSalt?.label?.trim();
+  if (saltLabel) {
+    const salt = buildInboxSalt(params.deployer, saltLabel);
+    return await precomputeCreate3Address(params.publicClient, params.deployer, salt);
+  }
+
+  throw new Error(
+    "FeeManager required for Inbox.init simulate: set FEE_MANAGER_ADDRESS, " +
+      "deployConfig.chains[<chainId>].feeManager, or FEE_MANAGER_SALT_LABEL / deployConfig.feeManagerSalt.label " +
+      "(CREATE3-predicted; no deploy tx is sent)."
+  );
+};
+
 const main = async () => {
   const connection = await network.connect();
   const { viem, provider, networkName } = connection;
@@ -62,11 +109,18 @@ const main = async () => {
     return;
   }
 
+  const feeManager = await resolveFeeManager({ deployer, chainId, publicClient });
+  const mpcAbiReEncode = process.env.MPC_ABI_REENCODE_ADDRESS?.trim()
+    ? getAddress(process.env.MPC_ABI_REENCODE_ADDRESS.trim() as Address)
+    : zeroAddress;
+  console.log(`[check-determinism] feeManager=${feeManager}`);
+  console.log(`[check-determinism] mpcAbiReEncode=${mpcAbiReEncode}`);
+
   const artifact = await readInboxArtifact();
   const initData = encodeFunctionData({
     abi: artifact.abi,
     functionName: "init",
-    args: [deployer, 0n, "0x0000000000000000000000000000000000000000"],
+    args: [deployer, BigInt(chainId), mpcAbiReEncode, feeManager],
   });
 
   const { result } = await publicClient.simulateContract({

@@ -42,9 +42,13 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
             revert SourceChainIsThisChain(chainId);
         }
 
+        // Ingest caps invert create-time peer roles: targetFee executes here (local),
+        // callerFee funds the return leg on the peer (remote).
         FeeConfig memory localCaps = _localMinFeeConfigMem();
+        FeeConfig memory remoteCaps = _remoteMinFeeConfigMem();
         uint256 maxMethodCallBytes = localCaps.maxMethodCallBytes;
-        uint256 maxExecutionGas = localCaps.maxExecutionGas;
+        uint256 maxLocalExecutionGas = localCaps.maxExecutionGas;
+        uint256 maxRemoteExecutionGas = remoteCaps.maxExecutionGas;
 
         uint256 allowedNonce = 1;
         if (lastIncomingRequestId[sourceChainId] != bytes32(0)) {
@@ -88,11 +92,11 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
                 if (weight > maxMethodCallBytes) {
                     revert MethodCallTooLarge(weight, maxMethodCallBytes);
                 }
-                if (minedRequest.targetFee > maxExecutionGas) {
-                    revert FeeGasTooHigh(minedRequest.targetFee, maxExecutionGas);
+                if (minedRequest.targetFee > maxLocalExecutionGas) {
+                    revert FeeGasTooHigh(minedRequest.targetFee, maxLocalExecutionGas);
                 }
-                if (minedRequest.callerFee > maxExecutionGas) {
-                    revert FeeGasTooHigh(minedRequest.callerFee, maxExecutionGas);
+                if (minedRequest.callerFee > maxRemoteExecutionGas) {
+                    revert FeeGasTooHigh(minedRequest.callerFee, maxRemoteExecutionGas);
                 }
 
                 Request memory newIncomingRequest = Request({

@@ -1,4 +1,6 @@
 # In-mem Hardhat gate for inbox contracts (no live COTI secrets).
+# Requires sibling checkout of coti-io/coti-contracts so `file:../coti-contracts` resolves
+# (same layout as PEI CI). Set CROSS_REPO_PAT when coti-contracts is private; otherwise github.token.
 # On push to main, optionally dispatches PEI ecosystem CI when PEI_DISPATCH_PAT is set.
 
 name: CI
@@ -8,6 +10,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      contracts_ref:
+        description: coti-contracts ref (branch/SHA)
+        required: false
+        default: main
 
 concurrency:
   group: inbox-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -18,24 +25,40 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout coti-pod-inbox-contracts
+        uses: actions/checkout@v4
+        with:
+          path: coti-pod-inbox-contracts
+
+      - name: Checkout coti-contracts
+        uses: actions/checkout@v4
+        with:
+          repository: coti-io/coti-contracts
+          ref: ${{ github.event.inputs.contracts_ref || 'main' }}
+          token: ${{ secrets.CROSS_REPO_PAT || github.token }}
+          path: coti-contracts
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: coti-pod-inbox-contracts/package-lock.json
 
       - name: Install
+        working-directory: coti-pod-inbox-contracts
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
       - name: Compile
+        working-directory: coti-pod-inbox-contracts
         run: npx hardhat compile
 
       - name: Bytecode size
+        working-directory: coti-pod-inbox-contracts
         run: npm run check:bytecode-size
 
       - name: Test (batched, 8GB heap)
+        working-directory: coti-pod-inbox-contracts
         run: npm test
         env:
           NODE_OPTIONS: --max-old-space-size=8192

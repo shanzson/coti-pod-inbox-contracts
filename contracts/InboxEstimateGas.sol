@@ -99,7 +99,9 @@ abstract contract InboxEstimateGas is InboxBase {
             revert IInboxMiner.EstimateRejectNotExecutable();
         }
 
+        // Same ingest peer roles as {InboxMiner.batchProcessRequests}: targetFee=local, callerFee=remote.
         FeeConfig memory localCaps = _localMinFeeConfigMem();
+        FeeConfig memory remoteCaps = _remoteMinFeeConfigMem();
         uint256 weight = MinerRejectLib.structuralSize(mined.methodCall);
         if (weight > localCaps.maxMethodCallBytes) {
             revert MethodCallTooLarge(weight, localCaps.maxMethodCallBytes);
@@ -107,8 +109,8 @@ abstract contract InboxEstimateGas is InboxBase {
         if (mined.targetFee > localCaps.maxExecutionGas) {
             revert FeeGasTooHigh(mined.targetFee, localCaps.maxExecutionGas);
         }
-        if (mined.callerFee > localCaps.maxExecutionGas) {
-            revert FeeGasTooHigh(mined.callerFee, localCaps.maxExecutionGas);
+        if (mined.callerFee > remoteCaps.maxExecutionGas) {
+            revert FeeGasTooHigh(mined.callerFee, remoteCaps.maxExecutionGas);
         }
 
         _enterEstimateMode();

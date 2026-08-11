@@ -707,7 +707,17 @@ contract InboxBase is IInbox, FeeManagerStubBase {
         if (!success) {
             return (false, new bytes(0), ret);
         }
-        return (true, abi.decode(ret, (bytes)), new bytes(0));
+        // abi.decode can revert on malformed returndata; catch so the batch path stays non-reverting.
+        try this.decodeReEncodeReturn(ret) returns (bytes memory decoded) {
+            return (true, decoded, new bytes(0));
+        } catch (bytes memory decodeErr) {
+            return (false, new bytes(0), decodeErr);
+        }
+    }
+
+    /// @dev External pure helper so {_safeEncodeMethodCall} can try/catch a failed `abi.decode(ret, (bytes))`.
+    function decodeReEncodeReturn(bytes memory ret) external pure returns (bytes memory) {
+        return abi.decode(ret, (bytes));
     }
 
     function _delegateReEncodeWithGt(MpcMethodCall memory methodCall) private returns (bytes memory) {
