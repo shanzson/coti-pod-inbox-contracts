@@ -4,7 +4,7 @@ Cross-chain **inbox** implementation for the COTI PoD stack: message routing, mi
 
 Shared PoD APIs (`IInbox`, `InboxUser`, `MpcAbiCodec`, fee/oracle interfaces, `PodNetworkConstants`) and
 **`MpcCore`** live in **[@coti-io/coti-contracts](https://github.com/coti-io/coti-contracts)** — this package
-depends on that library (`1.3.5`) and must not re-vendor or symlink those files.
+depends on that library via `file:../coti-contracts` (local monorepo) and must not re-vendor or symlink those files.
 
 dApp contracts (Privacy Portal, pERC20, PodLib, examples) also live in **coti-contracts**.
 
@@ -33,11 +33,12 @@ import "@coti-io/coti-contracts/contracts/pod/mpccodec/MpcAbiCodec.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 ```
 
-Local installs use `"@coti-io/coti-contracts": "1.3.5"` from npm.
+Local monorepo / PEI-style layout uses `"@coti-io/coti-contracts": "file:../coti-contracts"`. CI (`.github/workflows/ci.yml`) checks out `coti-io/coti-contracts` as a sibling so that `file:` path resolves on GitHub Actions.
 
 ## Develop
 
 ```bash
+# Expect ../coti-contracts (clone coti-io/coti-contracts next to this repo)
 npm install
 npx hardhat compile
 npm test                 # batched Hardhat (8GB heap) — preferred locally + CI
