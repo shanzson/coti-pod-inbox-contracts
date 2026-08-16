@@ -16,6 +16,12 @@ contract FeeManager {
     /// @notice Default respond/raise payload-weight cap until admin sets {setMaxReplyMethodCallBytes}.
     uint32 public constant DEFAULT_MAX_REPLY_METHOD_CALL_BYTES = 8192;
 
+    /// @notice Protocol ceiling for FeeConfig.maxMethodCallBytes (all chains).
+    uint32 public constant PROTOCOL_MAX_METHOD_CALL_BYTES = 32_768;
+
+    /// @notice Protocol ceiling for FeeConfig.maxExecutionGas (and shipped constantFee) on all chains.
+    uint32 public constant PROTOCOL_MAX_EXECUTION_GAS = 25_000_000;
+
     /// @notice Total native fee was zero.
     error TotalFeeTooLow(uint256 totalFee);
     /// @notice Callback fee slice was zero, exceeded total, or bought too few local callback gas units.
@@ -241,6 +247,12 @@ contract FeeManager {
 
     function _requireValidFeeConfig(LibFeeStorage.FeeConfig memory feeConfig) private pure {
         if (feeConfig.maxMethodCallBytes == 0 || feeConfig.maxExecutionGas == 0) {
+            revert FeeConfigInvalid(feeConfig);
+        }
+        if (
+            feeConfig.maxMethodCallBytes > PROTOCOL_MAX_METHOD_CALL_BYTES
+                || feeConfig.maxExecutionGas > PROTOCOL_MAX_EXECUTION_GAS
+        ) {
             revert FeeConfigInvalid(feeConfig);
         }
         if (feeConfig.gasPriceMul == 0 || feeConfig.gasPriceDiv == 0) {

@@ -290,6 +290,12 @@ export const MEASURED_INGEST_GAS_PER_BYTE = 800n;
  */
 export const CONSTANT_FEE_PRICED_EXECUTION_GAS = 12_000_000n;
 
+/** Protocol ceiling for FeeConfig.maxMethodCallBytes (matches FeeManager.PROTOCOL_MAX_METHOD_CALL_BYTES). */
+export const PROTOCOL_MAX_METHOD_CALL_BYTES = 32_768n;
+
+/** Protocol ceiling for FeeConfig.maxExecutionGas (matches FeeManager.PROTOCOL_MAX_EXECUTION_GAS). */
+export const PROTOCOL_MAX_EXECUTION_GAS = 25_000_000n;
+
 /**
  * Worst-case dest gas-unit floor for constant-fee mode:
  * `pricedExecutionGas + maxMethodCallBytes * ingestGasPerByte`, optionally buffered.
@@ -356,10 +362,8 @@ export const assertFeeConfigPairErrorLengths = (pair: {
   assertErrorLengthWithinReturnDataCap(pair.remote, "remote FeeConfig");
 };
 
-/** Ship constant-fee value: priced execution + max-size ingest at measured rate. */
-const FEE_CONFIG_COTI_SIDE_CONSTANT = constantFeeWorstCaseFloor({
-  maxMethodCallBytes: DEFAULT_MAX_METHOD_CALL_BYTES,
-});
+/** Ship constant-fee at the protocol execution-gas ceiling (≥ worst-case floor). */
+const FEE_CONFIG_COTI_SIDE_CONSTANT = PROTOCOL_MAX_EXECUTION_GAS;
 
 /**
  * Sepolia-side fee template (variable minimum): `constantFee == 0` and all template fields non-zero.
@@ -383,7 +387,7 @@ export const FEE_CONFIG_SEPOLIA_SIDE = {
  * COTI-side fee template (constant minimum gas units): `constantFee > 0` and other variable fields zero.
  * Max size/gas caps are still required. Used as **remote** on Sepolia and as **local** on COTI when paired
  * with {@link FEE_CONFIG_SEPOLIA_SIDE}.
- * `constantFee` is the worst-case floor (priced execution + max-size ingest); `maxExecutionGas` matches.
+ * `constantFee` ships at {@link PROTOCOL_MAX_EXECUTION_GAS} (ceiling == maxExecutionGas); floor is lower.
  */
 export const FEE_CONFIG_COTI_SIDE = {
   constantFee: FEE_CONFIG_COTI_SIDE_CONSTANT,

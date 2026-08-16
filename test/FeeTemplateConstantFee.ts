@@ -8,6 +8,7 @@ import {
   FEE_CONFIG_COTI_SIDE,
   FEE_CONFIG_SEPOLIA_SIDE,
   MEASURED_INGEST_GAS_PER_BYTE,
+  PROTOCOL_MAX_EXECUTION_GAS,
   type FeeConfigTuple,
 } from "../scripts/deploy-utils.js";
 
@@ -20,8 +21,10 @@ describe("deploy fee template constantFee floor", () => {
     );
   });
 
-  it("COTI-side constant template meets the worst-case floor", () => {
+  it("COTI-side constant template meets the worst-case floor at protocol ceiling", () => {
     assert.equal(FEE_CONFIG_COTI_SIDE.constantFee, FEE_CONFIG_COTI_SIDE.maxExecutionGas);
+    assert.equal(FEE_CONFIG_COTI_SIDE.constantFee, PROTOCOL_MAX_EXECUTION_GAS);
+    assert.ok(FEE_CONFIG_COTI_SIDE.constantFee >= constantFeeWorstCaseFloor({ maxMethodCallBytes: DEFAULT_MAX_METHOD_CALL_BYTES }));
     assertConstantFeeCoversWorstCase({ ...FEE_CONFIG_COTI_SIDE });
   });
 
