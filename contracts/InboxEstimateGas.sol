@@ -92,10 +92,10 @@ abstract contract InboxEstimateGas is InboxBase {
             revert IInboxMiner.RequestTargetChainMismatch(requestId, chainId, minedTargetChainId);
         }
         if (mined.sourceContract == address(0)) revert InvalidSourceContract();
-        if (mined.targetContract == address(0)) revert InvalidTargetContract();
-
-        (bool isReject,,) = MinerRejectLib.parse(mined.methodCall);
-        if (isReject) {
+        // PF-L1: reject only when targetContract==0 + sentinel methodCall (never parse as reject otherwise).
+        if (mined.targetContract == address(0)) {
+            (bool isReject,,) = MinerRejectLib.parse(mined.methodCall);
+            if (!isReject) revert InvalidTargetContract();
             revert IInboxMiner.EstimateRejectNotExecutable();
         }
 

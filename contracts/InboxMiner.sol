@@ -30,6 +30,7 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
     }
 
     /// @inheritdoc IInboxMiner
+    /// @dev Reject items require targetContract==0 and MinerRejectLib.parse success; nonzero target never rejects.
     function batchProcessRequests(uint256 sourceChainId, MinedRequest[] memory mined)
         external
         onlyMiner
@@ -73,12 +74,13 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
             Request storage incomingRequest = incomingRequests[requestId];
             if (incomingRequest.requestId != bytes32(0)) revert RequestAlreadyProcessed();
             if (minedRequest.sourceContract == address(0)) revert InvalidSourceContract();
-            if (minedRequest.targetContract == address(0)) revert InvalidTargetContract();
 
-            (bool isReject, uint8 rejectionCode, bytes32 rejectionReason) =
-                MinerRejectLib.parse(minedRequest.methodCall);
-
-            if (isReject) {
+            // PF-L1: reject is miner-only via targetContract==0 + sentinel methodCall.
+            // Never treat a nonzero-target user payload as reject (raw 0xff||… collision).
+            if (minedRequest.targetContract == address(0)) {
+                (bool isReject, uint8 rejectionCode, bytes32 rejectionReason) =
+                    MinerRejectLib.parse(minedRequest.methodCall);
+                if (!isReject) revert InvalidTargetContract();
                 _ingestMinerReject(
                     incomingRequest,
                     minedRequest,

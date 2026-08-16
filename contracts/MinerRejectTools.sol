@@ -6,6 +6,7 @@ import "./lib/MinerRejectLib.sol";
 
 /// @title MinerRejectTools
 /// @notice Pure helpers for the in-batch miner-reject encoding (kept off Inbox for create-size).
+/// @dev Ingest only treats a mined item as reject when targetContract==0 and parse() succeeds (PF-L1).
 contract MinerRejectTools {
     function buildMinerRejectMethodCall(uint8 rejectionCode, bytes32 rejectionReason)
         external

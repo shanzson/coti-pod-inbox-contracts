@@ -49,7 +49,10 @@ Subsidy vs margin above the floor is an operator policy choice; shipping below t
 
 ## In-batch miner reject
 
-Do **not** widen `MinedRequest`. Reject is a contiguous `batchProcessRequests` item whose `methodCall` uses a special encoding:
+Do **not** widen `MinedRequest`. Reject is a contiguous `batchProcessRequests` item that requires **both**:
+
+1. `targetContract == address(0)` (miner-only; user sends never use zero target)
+2. Sentinel `methodCall` encoding:
 
 ```text
 selector = 0x00000000
@@ -58,15 +61,18 @@ datalens = []
 data = abi.encodePacked(0xff, uint8(code), bytes32(reason))  // length 34
 ```
 
-Build it with the on-chain helper (do not hand-roll):
+A nonzero `targetContract` **never** takes the reject path, even if `methodCall` matches the sentinel (PF-L1: avoids raw `0xff||…` collision spoofing `ERROR_CODE_MINER_REJECTED`). Zero target without a valid sentinel reverts `InvalidTargetContract`.
+
+Build the methodCall with the on-chain helper (do not hand-roll):
 
 ```solidity
-methodCall = inbox.buildMinerRejectMethodCall(rejectionCode, rejectionReason);
+methodCall = rejectTools.buildMinerRejectMethodCall(rejectionCode, rejectionReason);
+// mined.targetContract = address(0);
 ```
 
 Keep the real header fields (`requestId`, fees, selectors, `isTwoWay`, …) from the source request / `MessageSent`. Destination stores an **empty** methodCall, emits `RequestRejected`, records `ERROR_CODE_MINER_REJECTED` (3), and for two-way sends a compact system-error callback. `retryFailedRequest` does not apply.
 
-If a normal (non-reject) item is overweight, ingest **reverts** — resubmit that nonce as a reject item.
+If a normal (non-reject) item is overweight, ingest **reverts** — resubmit that nonce as a reject item (`targetContract=0` + sentinel).
 
 ## Miner policy
 

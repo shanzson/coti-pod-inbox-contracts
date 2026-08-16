@@ -89,7 +89,7 @@ contract InboxBase is IInbox, FeeManagerStubBase {
 
     uint64 internal constant ERROR_CODE_EXECUTION_FAILED = 1;
     uint64 internal constant ERROR_CODE_ENCODE_FAILED = 2;
-    /// @notice Miner rejected an inbound nonce via the special reject {MpcMethodCall} encoding.
+    /// @notice Miner rejected an inbound nonce via zero targetContract + special reject {MpcMethodCall} encoding.
     uint64 internal constant ERROR_CODE_MINER_REJECTED = 3;
     /// @notice Incoming request exceeded {maxMessageLife} while still execution-failed; terminalized on retry.
     uint64 internal constant ERROR_CODE_EXPIRED = 4;

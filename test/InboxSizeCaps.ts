@@ -159,6 +159,8 @@ describe("Size caps and miner reject", { concurrency: false, timeout: 600_000 },
     const reqs = (await source.read.getRequests([TARGET_CHAIN_ID, 0n, 1n])) as any[];
     const mined = toMined(reqs[0]);
     const reason = padHex("0xdead", { size: 32 });
+    // PF-L1: reject requires targetContract==0 + sentinel methodCall
+    mined.targetContract = "0x0000000000000000000000000000000000000000";
     mined.methodCall = (await rejectTools.read.buildMinerRejectMethodCall([1, reason])) as any;
 
     const mineHash = await target.write.batchProcessRequests([SOURCE_CHAIN_ID, [mined]], {
@@ -204,6 +206,58 @@ describe("Size caps and miner reject", { concurrency: false, timeout: 600_000 },
     await assert.rejects(
       () => target.write.retryFailedRequest([mined.requestId], { account: deployer, gas: 5_000_000n }),
       /RetryFailedRequestNotAFailedRequest/
+    );
+  });
+
+  it("nonzero target + reject-shaped raw methodCall is not miner reject", async () => {
+    const { source, target, deployer, publicClient, rejectTools } = await deployPair();
+    const hash = await source.write.sendOneWayMessage(
+      [TARGET_CHAIN_ID, deployer, minimalMethodCall(), "0x00000000"],
+      { account: deployer, value: SEND_VALUE_WEI, gasPrice: GAS_PRICE_WEI }
+    );
+    await publicClient.waitForTransactionReceipt({ hash, ...receiptWaitOptions });
+    const reqs = (await source.read.getRequests([TARGET_CHAIN_ID, 0n, 1n])) as any[];
+    const mined = toMined(reqs[0]);
+    // Keep nonzero target; collision-shaped sentinel alone must not take reject path.
+    assert.notEqual(mined.targetContract, "0x0000000000000000000000000000000000000000");
+    const reason = padHex("0xbeef", { size: 32 });
+    mined.methodCall = (await rejectTools.read.buildMinerRejectMethodCall([2, reason])) as any;
+
+    const mineHash = await target.write.batchProcessRequests([SOURCE_CHAIN_ID, [mined]], {
+      account: deployer,
+      gas: 10_000_000n,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: mineHash, ...receiptWaitOptions });
+
+    const err = (await target.read.errors([mined.requestId])) as any;
+    const errorCode = err.errorCode ?? err[1];
+    assert.notEqual(errorCode, ERROR_CODE_MINER_REJECTED);
+
+    const incoming = (await target.read.getIncomingRequest([mined.requestId])) as any;
+    assert.equal(incoming.requestId, mined.requestId);
+    // Non-reject path stores the methodCall (may fail execution, but not empty reject header).
+    assert.notEqual(incoming.methodCall.data, "0x");
+  });
+
+  it("zero target without reject sentinel reverts InvalidTargetContract", async () => {
+    const { source, target, deployer, publicClient } = await deployPair();
+    const hash = await source.write.sendOneWayMessage(
+      [TARGET_CHAIN_ID, deployer, minimalMethodCall(), "0x00000000"],
+      { account: deployer, value: SEND_VALUE_WEI, gasPrice: GAS_PRICE_WEI }
+    );
+    await publicClient.waitForTransactionReceipt({ hash, ...receiptWaitOptions });
+    const reqs = (await source.read.getRequests([TARGET_CHAIN_ID, 0n, 1n])) as any[];
+    const mined = toMined(reqs[0]);
+    mined.targetContract = "0x0000000000000000000000000000000000000000";
+    mined.methodCall = minimalMethodCall("0x1234");
+
+    await assert.rejects(
+      () =>
+        target.write.batchProcessRequests([SOURCE_CHAIN_ID, [mined]], {
+          account: deployer,
+          gas: 10_000_000n,
+        }),
+      /InvalidTargetContract/
     );
   });
 
