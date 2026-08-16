@@ -32,6 +32,30 @@ abstract contract FeeManagerStubBase is ModuleCallBase {
     /// @notice Respond/raise payload weight exceeds {maxReplyMethodCallBytes}.
     error ResponseOutOfBounds(uint256 size, uint256 maxSize);
 
+    // FeeManager DELEGATECALL reverts bubble with these selectors — declare on the Inbox surface so
+    // apps that bind only the Inbox ABI can decode send-time / admin fee failures.
+    /// @notice Total native fee was zero.
+    error TotalFeeTooLow(uint256 totalFee);
+    /// @notice Callback fee slice was zero, exceeded total, or bought too few local callback gas units.
+    error CallbackFeeTooLow(uint256 callbackFee);
+    /// @notice Remote execution fee slice bought too few remote gas units.
+    error TargetFeeTooLow(uint256 targetFee);
+    /// @notice A non-constant fee template omitted a required field.
+    error FeeConfigInvalid(LibFeeStorage.FeeConfig feeConfig);
+    error FeeTransferFailed();
+    /// @notice Fee collection recipient was zero.
+    error CollectFeesZeroAddress();
+    /// @notice {priceOracle} is unset.
+    error OracleNotConfigured();
+    /// @notice Oracle returned a zero USD price.
+    error OraclePriceZero();
+    /// @notice Gas-price bound configuration is inconsistent.
+    error GasPriceBoundsInvalid(uint256 minGasPrice, uint256 maxGasPrice);
+    /// @notice Reply max was set to zero.
+    error MaxReplyMethodCallBytesInvalid(uint32 maxBytes);
+    /// @notice {setPriceOracle} rejected the zero address (would brick fee-validated sends).
+    error ZeroPriceOracle();
+
     // ─── Getters (ERC-7201 on Inbox) ─────────────────────────────────────────
 
     function priceOracle() public view returns (PriceOracle) {
