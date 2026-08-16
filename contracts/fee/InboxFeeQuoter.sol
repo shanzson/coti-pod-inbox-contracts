@@ -31,6 +31,8 @@ contract InboxFeeQuoter {
         uint256 callBackMethodExecutionGas,
         uint256 gasPrice
     ) external pure returns (uint256 targetFeeLocalWei, uint256 callerFeeLocalWei) {
+        require(remoteMin.gasPriceMul != 0 && remoteMin.gasPriceDiv != 0, "FeeConfigInvalid");
+        require(localMin.gasPriceMul != 0 && localMin.gasPriceDiv != 0, "FeeConfigInvalid");
         uint256 targetGasRemoteUnits = _expectedMinFee(remoteMethodCallSize, remoteMin) + remoteMethodExecutionGas;
         uint256 callerGasLocalUnits = _expectedMinFee(callBackMethodCallSize, localMin) + callBackMethodExecutionGas;
         targetGasRemoteUnits = Math.mulDiv(

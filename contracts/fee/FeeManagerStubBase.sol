@@ -164,6 +164,14 @@ abstract contract FeeManagerStubBase is ModuleCallBase {
         FeeConfig memory localMin = _fromLib($.localMinFeeConfig);
         FeeConfig memory remoteMin = _fromLib($.remoteMinFeeConfig);
 
+        // Unconfigured templates keep mul/div at 0 until updateMinFeeConfigs — do not divide.
+        if (remoteMin.gasPriceMul == 0 || remoteMin.gasPriceDiv == 0) {
+            revert FeeConfigInvalid(_toLib(remoteMin));
+        }
+        if (localMin.gasPriceMul == 0 || localMin.gasPriceDiv == 0) {
+            revert FeeConfigInvalid(_toLib(localMin));
+        }
+
         // ceil: gas * div / mul (skew invert) and remote→local price (matches InboxFeeQuoter Rounding.Ceil)
         uint256 targetGasRemoteUnits = _expectedMinFeeGasUnits(remoteMethodCallSize, remoteMin) + remoteMethodExecutionGas;
         uint256 mul = remoteMin.gasPriceMul;
