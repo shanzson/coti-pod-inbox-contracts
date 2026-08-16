@@ -57,7 +57,7 @@ Do not re-apply `gasPriceMul`/`gasPriceDiv` when interpreting estimates (prepaid
 
 ## gasPriceMul / gasPriceDiv (ops runbook)
 
-Packed on `FeeConfig` (`uint16` + `uint16`, still one storage slot with the seven `uint32`s). Default `1/1`.
+Packed on `FeeConfig` (`uint16` + `uint16`, still one storage slot with the seven `uint32`s). Default `1/1` is **Hardhat-only**; live L1↔COTI lanes must ship a measured non-identity remote ratio (H-02).
 
 On wei→gas for each leg (configs already in memory → **no extra SLOAD**):
 
@@ -65,14 +65,46 @@ On wei→gas for each leg (configs already in memory → **no extra SLOAD**):
 gasUnits = mulDiv(gasUnits, gasPriceMul, gasPriceDiv)
 ```
 
-**Direction:** factor approximates `gasPrice_remote / gasPrice_local` on the **remote** template (how local reference wei maps to remote gas units).
+**Direction (remote template):** `mul/div ≈ g_local / g_remote` where `g` is FeeManager’s reference gas (baseFee or `tx.gasprice`, clamped to `gasPriceBounds`).
+
+Break-even remote gas from local wei is `N = W · P_L / (P_R · g_R)`. Without skew the code uses `g_L` in the denominator, so identity mul/div over-grants when `g_R > g_L` (classic ~20× COTI→Sepolia under-collection).
 
 | Observed | Remote template tweak |
 |---|---|
-| Remote gas ~10× dearer | `mul=10, div=1` → larger `targetFee` gas units from same wei |
-| Remote gas ~half as dear | `mul=1, div=2` |
+| Remote gas ~10× dearer (`g_R ≈ 10 · g_L`) | `mul=1, div=10` → smaller `targetFee` gas units from same wei (payer must send more wei for the same remote budget) |
+| Remote gas ~half as dear (`g_R ≈ 0.5 · g_L`) | `mul=2, div=1` |
 
 - Do **not** bury cross-chain gas-price skew only in `gasPerByte` — use mul/div so size pricing stays honest.
 - Inverse (`* div / mul`, ceil) in `calculateTwoWayFeeRequiredInLocalToken` so UI prepaid estimates match submit.
 - `maxExecutionGas` still caps post-skew budgets; constant-fee legs keep `maxExecutionGas >= constantFee`.
 - Estimator stipend uses prepaid `targetFee` **as-is** — do not re-apply mul/div (would double-count).
+- PEI deploy refuses remote `mul == div` on non-Hardhat chains unless `allowGasPriceSkewOneToOne` is set.
+
+### Measuring and retuning (H-02)
+
+Reproducible helper (PEI):
+
+```bash
+node scripts/measure-gas-price-skew.mjs
+```
+
+Method:
+
+1. Read `eth_gasPrice` and latest `baseFeePerGas` on local and remote RPCs.
+2. Compute FeeManager-like reference `g = max(baseFee or gasPrice, minGasPriceWei)` (and clamp to `maxGasPriceWei` if set).
+3. Set **remote** `gasPriceMul/Div ≈ g_local / g_remote` with ~10% margin favoring miner coverage (shrink further when remote is dearer).
+4. Optionally compare a known two-way / mine receipt: prepaid local wei vs remote `gasUsed × remote gas price × oracle USD` and retune if PnL drifts.
+5. Record ratios in `deployConfig*.yaml` (`chains.<id>.feeConfig.remote`) and `LIVE_LANE_REMOTE_GAS_PRICE_SKEW` in `scripts/deploy-utils.ts`.
+
+**Shipped ratios (2026-08-16 samples + floor-aware AVAX mainnet):**
+
+| Lane (create chain → remote) | remote mul/div | Notes |
+|---|---|---|
+| Sepolia → COTI testnet | `5/1` | Testnet floors often equalize at 2 gwei; keep representative L1→COTI skew for when markets diverge |
+| Fuji → COTI testnet | `13/1` | Mirrors AVAX mainnet floor 25 gwei vs COTI 2 gwei |
+| COTI testnet → Sepolia | `1/5` | Inverse of Sepolia→COTI |
+| Ethereum → COTI mainnet | `5/1` | Retune via measure script when baseFee stays above mins |
+| Avalanche → COTI mainnet | `13/1` | From `minGasPriceWei` 25 gwei / 2 gwei |
+| COTI mainnet → L1 | `1/10` | Covers ETH~5 and AVAX~13 with margin |
+
+Retune when lane PnL or `measure-gas-price-skew.mjs` drifts materially; keep Hardhat `31337` at `1/1`.
