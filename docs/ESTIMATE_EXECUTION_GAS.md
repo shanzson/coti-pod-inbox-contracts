@@ -29,6 +29,7 @@ error ExecutionGasEstimate(uint256 gasUsed, uint256 responseDataSize, uint256 er
 - Intended for `eth_call`. A real tx also reverts → no lasting storage or events.
 - While estimating, inbox skips emits and tags reply creates via `_estimateReplyKind`.
 - Nested `call{gas: stipend}` with `ESTIMATE_OUTER_RESERVE` so adaptive burn cannot OOG before the revert encode.
+- Live mine path reserves `POST_CALL_GAS_RESERVE = 200_000` after the target subcall so failure accounting can commit (mirrored in PEI `scripts/inbox-mine-gas.ts`).
 
 `stipend = min(maxUserGas, executionBudget(targetFee), gasleft() - ESTIMATE_OUTER_RESERVE)`.
 

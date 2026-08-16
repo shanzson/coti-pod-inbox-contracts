@@ -17,7 +17,7 @@ abstract contract InboxMiner is InboxEstimateGas, MinerBase, IInboxMiner, Reentr
 
     using MinerRejectLib for IInbox.MpcMethodCall;
     /// @notice Gas reserved after the target subcall so failure accounting can always commit.
-    uint256 private constant POST_CALL_GAS_RESERVE = 100_000;
+    uint256 private constant POST_CALL_GAS_RESERVE = 200_000;
 
     /// @notice Gas reserved after an estimate subcall so {ExecutionGasEstimate} can always encode.
     uint256 private constant ESTIMATE_OUTER_RESERVE = 150_000;
