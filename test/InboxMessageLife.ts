@@ -43,6 +43,7 @@ describe("maxMessageLife terminalization", {
 
     const inbox = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
     await inbox.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(inbox), feeManagerOf(inbox)], { account: deployer });
+    assert.equal(BigInt(await inbox.read.maxMessageLife()), 172_800n);
     await inbox.write.updateMinFeeConfigs([{ ...FEE }, { ...FEE }], { account: deployer });
     await inbox.write.addMiner([deployer], { account: deployer });
     await inbox.write.setMaxMessageLife([Number(MESSAGE_LIFE_SECONDS)], { account: deployer });
@@ -61,6 +62,16 @@ describe("maxMessageLife terminalization", {
     });
     return { inbox, target, deployer, publicClient, provider };
   };
+
+  it("fresh inbox defaults maxMessageLife to 48 hours", async () => {
+    const { viem } = await network.connect({ network: "hardhat" });
+    const publicClient = await viem.getPublicClient();
+    const [wallet] = await viem.getWalletClients();
+    const deployer = wallet.account.address as `0x${string}`;
+    const inbox = await deployTestInbox(viem, { client: { public: publicClient, wallet } });
+    await inbox.write.init([deployer, TARGET_CHAIN_ID, mpcAbiReEncodeOf(inbox), feeManagerOf(inbox)], { account: deployer });
+    assert.equal(BigInt(await inbox.read.maxMessageLife()), 172_800n);
+  });
 
   const mineFailingTwoWay = async (params: {
     inbox: any;

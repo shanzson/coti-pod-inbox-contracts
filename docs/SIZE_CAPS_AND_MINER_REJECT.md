@@ -24,6 +24,7 @@ Reply legs (`respond` / `raise`) use the same weight units via `maxReplyMethodCa
 | `FeeConfig.maxMethodCallBytes` | `8192` (protocol ceiling `32_768`) |
 | `FeeConfig.maxExecutionGas` | `5_000_000` (variable) / `25_000_000` shipped constant-fee (`constantFee == ceiling`) |
 | `maxReplyMethodCallBytes` | `8192` |
+| `maxMessageLife` | `172_800` (48 hours; `0` = uncapped after explicit owner set) |
 
 Protocol ceilings (all chains, enforced in `FeeManager._requireValidFeeConfig`):
 
