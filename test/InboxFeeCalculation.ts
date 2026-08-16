@@ -57,7 +57,7 @@ const PRICE_SCALE_18 = 10n ** 18n;
 /** Remote leg minimum gas units (constant template). */
 const REMOTE_MIN_GAS_UNITS = 18_000_000n;
 
-/** Local leg template (non-constant). `maxExecutionGas` raised so 18M remote constant fees still admit. */
+/** Local leg template (non-constant). `maxExecutionGas` at protocol ceiling so 18M remote constant fees still admit. */
 const LOCAL_TEMPLATE = {
   constantFee: 0n,
   gasPerByte: 10n,
@@ -65,7 +65,7 @@ const LOCAL_TEMPLATE = {
   errorLength: 300n,
   bufferRatioX10000: 20_000n,
   maxMethodCallBytes: 8192n,
-  maxExecutionGas: 30_000_000n,
+  maxExecutionGas: 25_000_000n,
   gasPriceMul: 1n,
   gasPriceDiv: 1n,
 } as const;
@@ -225,9 +225,9 @@ describe(
       errorLength: 0n,
       bufferRatioX10000: 10_000n,
       maxMethodCallBytes: 8192n,
-      maxExecutionGas: 30_000_000n,
-  gasPriceMul: 1n,
-  gasPriceDiv: 1n,
+      maxExecutionGas: 25_000_000n,
+      gasPriceMul: 1n,
+      gasPriceDiv: 1n,
     };
 
     it(

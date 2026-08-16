@@ -28,7 +28,7 @@
     "test:inbox-events": "NODE_OPTIONS='--max-old-space-size=8192' hardhat test test/InboxCompactEvents.ts",
     "test:inbox-raise": "NODE_OPTIONS='--max-old-space-size=8192' hardhat test test/inbox-raise.ts",
     "test:codec": "NODE_OPTIONS='--max-old-space-size=8192' hardhat test test/mpc-abi-codec-128.ts test/mpc-abi-codec-256.ts",
-    "test:batched": "NODE_OPTIONS='--max-old-space-size=8192' hardhat test test/Inbox*.ts test/FeeManagerModule.ts && NODE_OPTIONS='--max-old-space-size=8192' hardhat test test/FeeTemplate*.ts test/MpcAbiReEncodeGuards.ts test/PoDPriceOracle.ts test/Gt64GasRepro.ts test/inbox-raise.ts test/mpc-abi-codec-128.ts test/mpc-abi-codec-256.ts test/system/mpc-abi-reencode-delegate-coti.ts",
+    "test:batched": "node scripts/run-tests-serial.mjs",
     "check:bytecode-size": "node scripts/check-bytecode-size.mjs"
   },
   "devDependencies": {
