@@ -786,27 +786,35 @@ contract InboxBase is IInbox, FeeManagerStubBase {
 
     /// @dev Low-level call that never retains more than {MAX_ERROR_RETURN_DATA} bytes of returndata.
     ///      On failure, `returnData` is the first ≤256 bytes (same bound as {_capErrorReturnData}).
+    ///      Copy in the same assembly block as `call` — a Solidity `new bytes` between `returndatasize`
+    ///      and `returndatacopy` is rewritten under coverage into a helper CALL that wipes returndata.
     function _callWithCappedReturnData(address target, uint256 gasBudget, bytes memory callData)
         internal
         returns (bool success, bytes memory returnData)
     {
-        uint256 fullLength;
-        assembly {
+        uint256 maxLen = MAX_ERROR_RETURN_DATA;
+        assembly ("memory-safe") {
             let dataPtr := add(callData, 32)
             let dataLen := mload(callData)
             success := call(gasBudget, target, 0, dataPtr, dataLen, 0, 0)
-            fullLength := returndatasize()
+            if iszero(success) {
+                let fullLength := returndatasize()
+                let copyLen := fullLength
+                if gt(fullLength, maxLen) { copyLen := maxLen }
+                returnData := mload(0x40)
+                mstore(returnData, copyLen)
+                let dest := add(returnData, 32)
+                let allocEnd := add(dest, and(add(copyLen, 31), not(31)))
+                // `returndatacopy` does not pad; zero the trailing partial word so the
+                // buffer never carries leftover memory beyond `copyLen`.
+                if gt(allocEnd, add(dest, copyLen)) { mstore(sub(allocEnd, 32), 0) }
+                returndatacopy(dest, 0, copyLen)
+                mstore(0x40, allocEnd)
+            }
         }
 
         if (success) {
-            return (true, new bytes(0));
-        }
-
-        // Cap at copy time — do not load full returndata then {_capErrorReturnData}.
-        uint256 copyLen = fullLength > MAX_ERROR_RETURN_DATA ? MAX_ERROR_RETURN_DATA : fullLength;
-        returnData = new bytes(copyLen);
-        assembly {
-            returndatacopy(add(returnData, 32), 0, copyLen)
+            return (true, "");
         }
     }
 }

@@ -224,8 +224,9 @@ describe("Inbox POD-02 capped returndata (raw bytes)", {
     });
     const rid = await mineFailing(h, calldata, 2_000_000n);
     const data = await readErrorBytes(h, rid);
-    assert.ok(byteLen(data) > 0);
-    assert.ok(data.toLowerCase().startsWith("0x4e487b71"), `data=${data}`);
+    // 36 bytes (selector + uint256) — not word-aligned, so the full value must be
+    // byte-exact to prove the trailing partial word carries no leftover memory.
+    assert.equal(data.toLowerCase(), `0x4e487b71${"00".repeat(31)}01`);
   });
 
   it("custom error bytes are preserved; hint identifiable in hex", async () => {
@@ -267,6 +268,20 @@ describe("Inbox POD-02 capped returndata (raw bytes)", {
 
   it("tiny raw revert (1–16 bytes) is stored without padding", async () => {
     for (const size of [1n, 4n, 16n]) {
+      const calldata = encodeFunctionData({
+        abi: h.target.abi,
+        functionName: "boom",
+        args: [size],
+      });
+      const rid = await mineFailing(h, calldata);
+      const data = await readErrorBytes(h, rid);
+      assert.equal(byteLen(data), Number(size));
+      assert.equal(data.toLowerCase(), `0x${"00".repeat(Number(size))}`);
+    }
+  });
+
+  it("non-word-aligned revert under the cap has no trailing garbage", async () => {
+    for (const size of [33n, 100n, 255n]) {
       const calldata = encodeFunctionData({
         abi: h.target.abi,
         functionName: "boom",
