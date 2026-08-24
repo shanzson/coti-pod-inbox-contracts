@@ -16,6 +16,8 @@ const SRC = 1000n;
 const DST = 1001n;
 const GP = 1_000_000_000n;
 const P18 = 10n ** 18n;
+/** EDR rejects tx gas above 2**24 (16,777,216). */
+const MAX_TX_GAS = 16_000_000n;
 
 /** Walk viem's whole cause chain — the real revert lives in `details`, not `shortMessage`. */
 function revertReason(e: any): string {
@@ -141,7 +143,7 @@ describe("PoC — audit findings (rev 2)", { concurrency: false, timeout: 900_00
         const mh = await target.write.batchProcessRequests([SRC, [m]], { account: deployer, gas: txGas });
         const rc = await publicClient.waitForTransactionReceipt({ hash: mh, ...wait });
         const err = (await target.read.errors([m.requestId])) as any;
-        return { ok: rc.status === "success", code: BigInt(err.errorCode ?? err[1] ?? 0n), targetFee: m.targetFee };
+        return { ok: rc.status === "success", code: BigInt(err.errorCode ?? err[1] ?? 0n), targetFee: m.targetFee, gasUsed: rc.gasUsed as bigint };
       } catch (e: any) { return { ok: false, why: revertReason(e), targetFee: m.targetFee }; }
     };
 
@@ -150,10 +152,11 @@ describe("PoC — audit findings (rev 2)", { concurrency: false, timeout: 900_00
 
     if (small.ok && !big.ok) {
       verdict(1, "POST_CALL_GAS_RESERVE undersized", "REAL",
-        `targetFee=${small.targetFee}. 32-byte revert recorded (code=${small.code}); 256-byte revert aborted the batch: ${big.why}`);
+        `targetFee=${small.targetFee}. 32B recorded (code=${small.code}, mine gasUsed=${small.gasUsed}); 256B aborted the batch: ${big.why}`);
     } else if (small.ok && big.ok) {
       verdict(1, "POST_CALL_GAS_RESERVE undersized", "FALSE POSITIVE",
-        `Both recorded fine (32B code=${small.code}, 256B code=${big.code}) — the 200k reserve held.`);
+        `Both recorded (32B code=${small.code} gasUsed=${small.gasUsed}; 256B code=${big.code} gasUsed=${big.gasUsed}). ` +
+        `Reserve held ONLY IF the target really burned its stipend — gasUsed near the ~2.5M stipend means it did; a few hundred k means the burn was elided.`);
     } else {
       verdict(1, "POST_CALL_GAS_RESERVE undersized", "INCONCLUSIVE",
         `small.ok=${small.ok} (${small.why ?? "-"}) big.ok=${big.ok} (${big.why ?? "-"})`);
@@ -174,7 +177,7 @@ describe("PoC — audit findings (rev 2)", { concurrency: false, timeout: 900_00
     const m = toMined(((await source.read.getRequests([DST, 0n, 1n])) as any[])[0]);
 
     try {
-      const mh = await target.write.batchProcessRequests([SRC, [m]], { account: deployer, gas: 30_000_000n });
+      const mh = await target.write.batchProcessRequests([SRC, [m]], { account: deployer, gas: MAX_TX_GAS });
       await publicClient.waitForTransactionReceipt({ hash: mh, ...wait });
       const outLen = await target.read.getRequestsLen([SRC]);
       if (outLen > 0n) {
@@ -292,7 +295,7 @@ describe("PoC — audit findings (rev 2)", { concurrency: false, timeout: 900_00
     await publicClient.waitForTransactionReceipt({ hash: h, ...wait });
     const m = toMined(((await source.read.getRequests([DST, 0n, 1n])) as any[])[0]);
 
-    const mh = await target.write.batchProcessRequests([SRC, [m]], { account: deployer, gas: 30_000_000n });
+    const mh = await target.write.batchProcessRequests([SRC, [m]], { account: deployer, gas: MAX_TX_GAS });
     await publicClient.waitForTransactionReceipt({ hash: mh, ...wait });
 
     const legs = await target.read.getRequestsLen([SRC]);
@@ -331,11 +334,12 @@ describe("PoC — audit findings (rev 2)", { concurrency: false, timeout: 900_00
     if (!gs) return MISSING(7, "Retry with caller-chosen gas", "PocGasSensitiveTarget");
     await gs.write.setInnerCost([400_000n], { account: deployer });
 
+    const [minTarget] = (await source.read.calculateTwoWayFeeRequiredInLocalToken([256n, 256n, 0n, 0n, GP])) as [bigint, bigint];
     const h = await source.write.sendOneWayMessage([DST, gs.address, mc(), "0x00000000"],
-      { account: deployer, value: 500_000n * GP, gasPrice: GP });
+      { account: deployer, value: minTarget + 200_000n * GP, gasPrice: GP });
     await publicClient.waitForTransactionReceipt({ hash: h, ...wait });
     const m = toMined(((await source.read.getRequests([DST, 0n, 1n])) as any[])[0]);
-    const mh = await target.write.batchProcessRequests([SRC, [m]], { account: deployer, gas: 30_000_000n });
+    const mh = await target.write.batchProcessRequests([SRC, [m]], { account: deployer, gas: MAX_TX_GAS });
     await publicClient.waitForTransactionReceipt({ hash: mh, ...wait });
 
     const e0 = (await target.read.errors([m.requestId])) as any;
@@ -372,21 +376,26 @@ describe("PoC — audit findings (rev 2)", { concurrency: false, timeout: 900_00
     await target.write.updateMinFeeConfigs([{ ...VAR_FEE }, { ...lowered }], { account: deployer });
 
     let normalWhy = "", rejectWhy = "";
-    try { await target.write.batchProcessRequests([SRC, [m]], { account: deployer, gas: 30_000_000n }); }
+    try { await target.write.batchProcessRequests([SRC, [m]], { account: deployer, gas: MAX_TX_GAS }); }
     catch (e: any) { normalWhy = revertReason(e); }
 
     const rej: any = { ...m };
     rej.targetContract = "0x0000000000000000000000000000000000000000";
     rej.methodCall = await rejectTools.read.buildMinerRejectMethodCall([1, toHex(1n, { size: 32 })]);
     try {
-      const rh = await target.write.batchProcessRequests([SRC, [rej]], { account: deployer, gas: 30_000_000n });
+      const rh = await target.write.batchProcessRequests([SRC, [rej]], { account: deployer, gas: MAX_TX_GAS });
       await publicClient.waitForTransactionReceipt({ hash: rh, ...wait });
     } catch (e: any) { rejectWhy = revertReason(e); }
 
-    if (normalWhy && rejectWhy) {
+    const feeBand = (w: string) => /FeeGasTooHigh|MethodCallTooLarge/.test(w);
+    if (normalWhy && rejectWhy && feeBand(normalWhy) && feeBand(rejectWhy)) {
       verdict(8, "Reject hatch re-applies the blocking cap", "REAL",
         `callerFee=${m.callerFee}, cap lowered to ${lowered.maxExecutionGas}. normal: ${normalWhy} || reject ALSO failed: ${rejectWhy}`);
       verdict(9, "System-error leg fail-unsafe", "REAL", `Reject's system-error leg reverted inside _createRequest.`);
+    } else if (normalWhy && rejectWhy) {
+      verdict(8, "Reject hatch re-applies the blocking cap", "INCONCLUSIVE",
+        `Both failed but not on a fee cap — infrastructure error, not contract behaviour. normal: ${normalWhy} || reject: ${rejectWhy}`);
+      verdict(9, "System-error leg fail-unsafe", "INCONCLUSIVE", "Depends on PoC 8 staging.");
     } else if (normalWhy && !rejectWhy) {
       verdict(8, "Reject hatch re-applies the blocking cap", "FALSE POSITIVE",
         `normal ingest failed (${normalWhy}) but the reject cleared the nonce.`);

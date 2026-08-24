@@ -17,11 +17,17 @@ contract PocRevertTarget {
         burnFloor = burnFloor_;
     }
 
+    uint256 public sink;
+
     fallback() external {
         uint256 floor_ = burnFloor;
+        uint256 s = sink;
+        // keccak in the loop body + a storage write afterwards defeats the optimizer;
+        // an empty `while (gasleft() > floor_) {}` gets eliminated and burns nothing.
         while (gasleft() > floor_) {
-            // burn the whole stipend down to `floor_`
+            s = uint256(keccak256(abi.encodePacked(s)));
         }
+        sink = s;
         uint256 n = revertSize;
         assembly {
             let p := mload(0x40)
@@ -63,12 +69,17 @@ contract PocGasSensitiveTarget {
 
     function setInnerCost(uint256 c) external { innerCost = c; }
 
+    uint256 public innerSink;
+
     function _inner() external {
         require(msg.sender == address(this), "self only");
         uint256 start = gasleft();
+        uint256 s = innerSink;
+        // real work, so the optimizer cannot drop the loop
         while (start - gasleft() < innerCost) {
-            // consume innerCost gas; OOGs if the 63/64 forward is too small
+            s = uint256(keccak256(abi.encodePacked(s)));
         }
+        innerSink = s;
     }
 
     fallback() external {
