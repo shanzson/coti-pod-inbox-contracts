@@ -132,7 +132,7 @@ describe("PoC — audit findings (rev 2)", { concurrency: false, timeout: 900_00
     if (!t) return MISSING(1, "POST_CALL_GAS_RESERVE undersized", "PocRevertTarget");
 
     const run = async (revertSize: bigint, txGas: bigint) => {
-      await t.write.configure([revertSize, 2_000n], { account: deployer });
+      await t.write.configure([revertSize, 3_000n], { account: deployer });
       const h = await source.write.sendOneWayMessage([DST, t.address, mc(), "0x00000000"],
         { account: deployer, value: 4_500_000n * GP, gasPrice: GP });
       await publicClient.waitForTransactionReceipt({ hash: h, ...wait });
@@ -167,9 +167,12 @@ describe("PoC — audit findings (rev 2)", { concurrency: false, timeout: 900_00
     const { viem, publicClient, cli, source, target, deployer } = await deployPair(VAR_FEE);
     const responder = await tryDeploy(viem, "PocResponder", [target.address], cli);
     if (!responder) return MISSING(2, "Return leg unpriced", "PocResponder");
-    await responder.write.configure([8000n], { account: deployer });
+    // Reply small enough that the destination can afford to CREATE it out of targetFee,
+    // but far larger than what the minimum callerFee pays to INGEST on the source chain.
+    await responder.write.configure([1200n], { account: deployer });
 
-    const [tFee, cFee] = (await source.read.calculateTwoWayFeeRequiredInLocalToken([256n, 256n, 0n, 0n, GP])) as [bigint, bigint];
+    const [, cFee] = (await source.read.calculateTwoWayFeeRequiredInLocalToken([256n, 256n, 0n, 0n, GP])) as [bigint, bigint];
+    const tFee = 4_800_000n * GP; // near maxExecutionGas so reply creation is funded
     const h = await source.write.sendTwoWayMessage(
       [DST, responder.address, mc(), "0x11111111", "0x22222222", cFee],
       { account: deployer, value: tFee + cFee, gasPrice: GP });
@@ -186,7 +189,13 @@ describe("PoC — audit findings (rev 2)", { concurrency: false, timeout: 900_00
         const priced = BigInt(replyBytes) * 800n;
         verdict(2, "Return leg unpriced", "REAL",
           `callerFee=${m.callerFee} funded a ${replyBytes}-byte return leg; protocol's own gasPerByte=800 prices it at ${priced} (${Number(priced) / Number(m.callerFee) | 0}x).`);
-      } else verdict(2, "Return leg unpriced", "FALSE POSITIVE", "respond() produced no return leg.");
+      } else {
+        const err = (await target.read.errors([m.requestId])) as any;
+        const code = BigInt(err.errorCode ?? err[1] ?? 0n);
+        verdict(2, "Return leg unpriced", code === 0n ? "FALSE POSITIVE" : "INCONCLUSIVE",
+          code === 0n ? "respond() produced no return leg and the target did not fail."
+                      : `No return leg because the target itself failed (errorCode=${code}) — reply creation outran targetFee, so the reply size was never tested.`);
+      }
     } catch (e: any) {
       verdict(2, "Return leg unpriced", "FALSE POSITIVE", `Oversized reply rejected: ${revertReason(e)}`);
     }
@@ -276,8 +285,9 @@ describe("PoC — audit findings (rev 2)", { concurrency: false, timeout: 900_00
     } else {
       const delta = large - small;
       const logCost = (6000n - 100n) * 8n;
-      verdict(5, "Estimate suppresses reply LOG cost", delta < logCost / 2n ? "REAL" : "FALSE POSITIVE",
-        `gasUsed 100B=${small} 6000B=${large} (delta ${delta}); LOG data alone should be ~${logCost}.`);
+      verdict(5, "Estimate suppresses reply LOG cost", "INCONCLUSIVE",
+        `gasUsed 100B=${small} 6000B=${large} (delta ${delta} = ${Number(delta) / 5900} gas/byte); LOG data is only ~${logCost} (8/byte) of that, ` +
+        `so memory+respond costs dominate and this test cannot isolate the suppressed LOGs. Needs an estimate-vs-real-mine comparison.`);
     }
   });
 

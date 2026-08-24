@@ -17,23 +17,20 @@ contract PocRevertTarget {
         burnFloor = burnFloor_;
     }
 
-    uint256 public sink;
-
     fallback() external {
         uint256 floor_ = burnFloor;
-        uint256 s = sink;
-        // keccak in the loop body + a storage write afterwards defeats the optimizer;
-        // an empty `while (gasleft() > floor_) {}` gets eliminated and burns nothing.
+        uint256 s = 1;
+        // `s` feeds the revert payload below, so the optimizer cannot drop this loop.
+        // No storage write here: a cold SSTORE costs 22,100 and would OOG the target
+        // *before* it reverts, producing empty returndata and testing nothing.
         while (gasleft() > floor_) {
             s = uint256(keccak256(abi.encodePacked(s)));
         }
-        sink = s;
         uint256 n = revertSize;
         assembly {
             let p := mload(0x40)
-            // fill with 0x41 so truncation/corruption is visible
             for { let i := 0 } lt(i, n) { i := add(i, 32) } {
-                mstore(add(p, i), not(0))
+                mstore(add(p, i), s)
             }
             revert(p, n)
         }
