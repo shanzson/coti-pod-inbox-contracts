@@ -1,0 +1,486 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Inbox Security Review</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm 18mm 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 9.6pt; line-height: 1.5; color: #1a1a1a; margin: 0;
+  }
+  code, .m { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.88em; }
+  code { background: #f1f2f4; padding: 0 3px; border-radius: 2px; }
+
+  h1 { font-size: 21pt; margin: 0 0 4pt; letter-spacing: -0.4pt; }
+  .sub { color: #5a5f68; font-size: 10pt; margin: 0 0 14pt; }
+  h2 { font-size: 13pt; margin: 20pt 0 7pt; padding-bottom: 3pt; border-bottom: 1.2pt solid #1a1a1a; }
+  h3 { font-size: 10.5pt; margin: 0; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 9pt; margin-bottom: 9pt; }
+  th, td { text-align: left; padding: 4pt 6pt; border-bottom: 0.5pt solid #d8dade; vertical-align: top; }
+  th { background: #f1f2f4; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.4pt; }
+  td.n { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+  .finding { margin: 0 0 13pt; page-break-inside: avoid; border: 0.5pt solid #d8dade; }
+  .fhead { background: #f7f8f9; padding: 6pt 8pt; border-bottom: 0.5pt solid #d8dade; }
+  .fhead .loc { font-family: "SF Mono", Menlo, monospace; font-size: 8.4pt; color: #5a5f68; margin-top: 2pt; }
+  .body { padding: 7pt 8pt 8pt; }
+  .conf { float: right; font-weight: 700; font-size: 10pt; padding: 1pt 6pt; border-radius: 2px; color: #fff; }
+  .c90 { background: #a02c1f; } .c85 { background: #b5541c; }
+  .c80 { background: #8a6a12; } .c75 { background: #4a5560; } .c72 { background: #6a7280; }
+
+  .lbl {
+    font-size: 7.6pt; font-weight: 700; letter-spacing: 0.7pt; text-transform: uppercase;
+    color: #3b6ea5; margin: 7pt 0 2pt;
+  }
+  .lbl:first-child { margin-top: 0; }
+  .lbl.plain { color: #1f6b4a; }
+  .lbl.impact { color: #a02c1f; }
+  .lbl.fix { color: #5a5f68; }
+  p { margin: 0 0 5pt; }
+  .plainbox { background: #f2f7f4; border-left: 2pt solid #1f6b4a; padding: 5pt 7pt; margin-bottom: 2pt; }
+  .impactbox { background: #fbf3f2; border-left: 2pt solid #a02c1f; padding: 5pt 7pt; margin-bottom: 2pt; }
+  pre {
+    background: #f7f8f9; border: 0.5pt solid #e2e4e8; padding: 5pt 6pt; margin: 3pt 0 5pt;
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 7.8pt; line-height: 1.42;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  pre .a { color: #1f6b4a; } pre .r { color: #a02c1f; }
+  ul { margin: 0 0 5pt; padding-left: 14pt; }
+  li { margin-bottom: 2.5pt; }
+  .note { background: #fdf9ec; border-left: 2pt solid #8a6a12; padding: 6pt 8pt; margin: 8pt 0; font-size: 9pt; }
+  .disclaimer { margin-top: 14pt; padding: 7pt 9pt; background: #f1f2f4; font-size: 8.4pt; color: #40454d; }
+  .pb { page-break-before: always; }
+</style></head>
+<body>
+
+<h1>Security Review — Inbox</h1>
+<p class="sub">COTI PoD Inbox contracts · <span class="m">InboxBase</span> inheritance chain · 12-agent parallel audit</p>
+
+<table>
+  <tr><th style="width:26%">Field</th><th>Value</th></tr>
+  <tr><td>Mode</td><td>Named files (4)</td></tr>
+  <tr><td>Files reviewed</td><td class="m">InboxBase.sol (820) · InboxEstimateGas.sol (142) · InboxMiner.sol (421) · Inbox.sol (43)</td></tr>
+  <tr><td>Repository</td><td class="m">coti-pod-inbox-contracts @ 89121ad (main)</td></tr>
+  <tr><td>Method</td><td>12 parallel adversarial agents (Claude Opus), deduplicated, four-gate validation</td></tr>
+  <tr><td>Confidence threshold</td><td>80 — at or above gets a fix; below gets description only</td></tr>
+  <tr><td>Findings</td><td>12 findings · 9 leads</td></tr>
+</table>
+
+<div class="note">
+<b>Evidence status — please read.</b> No finding in this report has an executable proof-of-concept. The evidence
+supporting each is static: traced call paths, EVM gas and storage-slot arithmetic, and quoted source. Finding&nbsp;4
+additionally had its shipped configuration values verified directly against
+<span class="m">scripts/deploy-utils.ts</span>. Confidence scores reflect how completely the attack path was traced,
+not execution against a live EVM. Findings should be reproduced in a test harness before remediation work is
+scheduled or a severity is assigned externally.
+</div>
+
+<h2>Summary</h2>
+<table>
+  <tr><th class="n">#</th><th class="n">Conf.</th><th>Title</th><th>Location</th><th class="n">Agents</th></tr>
+  <tr><td class="n">1</td><td class="n">90</td><td>Post-call gas reserve smaller than the failure write it guarantees</td><td class="m">InboxMiner._runIncomingExecution</td><td class="n">10</td></tr>
+  <tr><td class="n">2</td><td class="n">90</td><td>Return-leg payload never checked against prepaid budget</td><td class="m">InboxBase._reply</td><td class="n">7</td></tr>
+  <tr><td class="n">3</td><td class="n">85</td><td>Callback fee floor priced from request size, not reply size</td><td class="m">InboxBase.sendTwoWayMessage</td><td class="n">1</td></tr>
+  <tr><td class="n">4</td><td class="n">85</td><td>Shipped fee template makes admission band unreachable</td><td class="m">InboxBase._createRequest</td><td class="n">2</td></tr>
+  <tr><td class="n">5</td><td class="n">80</td><td>Estimate suppresses LOG opcodes charged to the metered subcall</td><td class="m">InboxEstimateGas._estimateExecutionGasForMiner</td><td class="n">1</td></tr>
+  <tr><td class="n">6</td><td class="n">80</td><td>Expiry clock runs while pause disables the cure</td><td class="m">InboxMiner.retryFailedRequest</td><td class="n">1</td></tr>
+  <tr><td class="n">7</td><td class="n">80</td><td>Permissionless retry executes target with caller-chosen gas</td><td class="m">InboxMiner.retryFailedRequest</td><td class="n">1</td></tr>
+  <tr><td class="n">8</td><td class="n">75</td><td>Miner-reject hatch re-applies the cap that blocked the item</td><td class="m">InboxMiner._ingestMinerReject</td><td class="n">2</td></tr>
+  <tr><td class="n">9</td><td class="n">75</td><td>System-error return leg is fail-unsafe</td><td class="m">InboxBase._sendSystemErrorCallbackWithCode</td><td class="n">3</td></tr>
+  <tr><td class="n">10</td><td class="n">75</td><td>Ingest-storage fee returned to sender as executable gas</td><td class="m">InboxMiner._runIncomingExecution</td><td class="n">1</td></tr>
+  <tr><td class="n">11</td><td class="n">75</td><td>TTL terminalization half-writes the record, emits nothing on one-way</td><td class="m">InboxMiner.retryFailedRequest</td><td class="n">3</td></tr>
+  <tr><td class="n">12</td><td class="n">72</td><td>Ordinary execution failure produces no error return leg</td><td class="m">InboxMiner._runIncomingExecution</td><td class="n">1</td></tr>
+</table>
+
+<div class="note">
+<b>Fix these two together.</b> Findings 1 and 4 interact. Clamping the fee band (4) pins every COTI-bound
+<span class="m">targetFee</span> at exactly 25,000,000, which is precisely the condition that makes the gas-reserve
+shortfall (1) bind on every single ingest rather than occasionally.
+</div>
+
+<h2 class="pb">Findings</h2>
+
+<!-- 1 -->
+<div class="finding"><div class="fhead">
+<span class="conf c90">90</span><h3>1. Post-call gas reserve is smaller than the failure write it guarantees</h3>
+<div class="loc">InboxMiner._runIncomingExecution · 10 of 12 agents · gas-reserve-undersized</div></div><div class="body">
+<div class="lbl">Description</div>
+<p><code>POST_CALL_GAS_RESERVE = 200_000</code> is documented as ensuring "failure accounting can always commit", but
+<code>errors[rid] = Error{bytes32, uint64, bytes(256)}</code> is 11 cold zero→nonzero SSTOREs = <b>243,100 gas</b> before two
+LOGs — so a target that burns its allowance and reverts with a full 256-byte payload OOGs the whole
+<code>batchProcessRequests</code>, and nonce contiguity forbids skipping it. <code>ESTIMATE_OUTER_RESERVE = 150_000</code> has the same
+defect and is worse: the <code>errors[rid]</code> write is <i>not</i> gated by <code>_shouldEmit()</code>, so the identical 243,100 gas is
+spent during an estimate that always reverts anyway.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+The inbox is a delivery depot that always sets aside a little fuel so it can fill out an incident report when a
+delivery goes wrong. The amount set aside is less than the report actually costs to file. So if a package fails
+messily enough, the depot runs out of fuel halfway through the paperwork — and because the paperwork can't be
+finished, the <i>entire truckload</i> is rejected, not just the one bad package. Since packages must be processed in
+strict numbered order, nobody can skip past the bad one.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+Anyone can deploy a contract on the destination chain and, for the price of a single message fee, force miners to
+lose the full gas of an entire batch transaction — repeatedly. Because messages must be processed in unbroken
+numerical order, the offending message cannot be skipped, so the lane between the two chains <b>stops entirely</b>
+until a miner manually intervenes with the reject mechanism (which finding 8 shows can itself fail). Every pending
+deposit, withdrawal and transfer on that lane freezes. This does not require malice to trigger: an ordinary
+<code>Error(string)</code> with a 200-character message already exceeds the threshold, so it will also happen by accident in
+production.
+</div>
+<div class="lbl fix">Fix — Option A (raise the reserve)</div>
+<pre><span class="r">- uint256 private constant POST_CALL_GAS_RESERVE = 200_000;</span>
+<span class="r">- uint256 private constant ESTIMATE_OUTER_RESERVE = 150_000;</span>
+<span class="a">+ uint256 private constant POST_CALL_GAS_RESERVE = 320_000;</span>
+<span class="a">+ uint256 private constant ESTIMATE_OUTER_RESERVE = 300_000;</span></pre>
+<div class="lbl fix">Fix — Option B (shrink what is persisted)</div>
+<pre><span class="r">- errors[rid] = Error({requestId: rid, errorCode: ERROR_CODE_EXECUTION_FAILED, errorMessage: returnData});</span>
+<span class="a">+ errors[rid] = Error({requestId: rid, errorCode: ERROR_CODE_EXECUTION_FAILED,</span>
+<span class="a">+                      errorMessage: abi.encodePacked(keccak256(returnData))});</span></pre>
+<div class="lbl fix">Fix — apply independently (estimate must not write at all)</div>
+<pre><span class="r">- errors[rid] = Error({requestId: rid, errorCode: ERROR_CODE_EXECUTION_FAILED, errorMessage: returnData});</span>
+<span class="r">- if (_shouldEmit()) { emit ErrorReceived(rid, ERROR_CODE_EXECUTION_FAILED, returnData); }</span>
+<span class="a">+ if (_shouldEmit()) {</span>
+<span class="a">+     errors[rid] = Error({requestId: rid, errorCode: ERROR_CODE_EXECUTION_FAILED, errorMessage: returnData});</span>
+<span class="a">+     emit ErrorReceived(rid, ERROR_CODE_EXECUTION_FAILED, returnData);</span>
+<span class="a">+ }</span></pre>
+</div></div>
+
+<!-- 2 -->
+<div class="finding"><div class="fhead">
+<span class="conf c90">90</span><h3>2. Return-leg payload size is never checked against the prepaid callback budget</h3>
+<div class="loc">InboxBase._reply · 7 of 12 agents · unpriced-return-leg</div></div><div class="body">
+<div class="lbl">Description</div>
+<p><code>_requireReplyMethodCallBounded</code> bounds the reply only by the admin constant <code>maxReplyMethodCallBytes</code> (default
+8192) and <code>_createRequest</code> only by <code>maxMethodCallBytes</code> — neither is a function of <code>callerFee</code>. A destination target
+can answer a minimum-fee 288-byte request with an 8 KB reply the source-chain miner must ingest at roughly 8–13×
+the funded cost, repeatably. Proof the caps are mutually incoherent: with the shipped Sepolia template,
+<code>expectedMinFee(8192)</code> = 10,287,600 exceeds <code>maxExecutionGas</code> = 5,000,000, so a maximum-size reply is unfundable at
+<i>any</i> legal <code>callerFee</code>.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+You pay postage based on the size of the letter you send. The reply you get back can be thirty times bigger, and
+nobody charges anyone for that — the courier absorbs it. Worse still: the largest reply the rules allow costs more
+to deliver than the largest postage anyone is permitted to pay. So a maximum-size reply literally cannot be paid
+for, no matter how much the sender wants to spend.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+A direct, repeatable economic drain on whoever runs the miners — in practice, the protocol operator. An attacker
+controlling both endpoints pays roughly one eighth of the real cost and pockets the difference as damage. This is
+a slow bleed rather than an outage: nothing breaks immediately, but running a miner becomes unprofitable, and
+when miners stop relaying, the bridge stops. Because the shortfall is structural rather than configuration-dependent
+(when <code>constantFee &gt; 0</code>, reply size is priced at exactly zero), no operator tuning closes it.
+</div>
+<div class="lbl fix">Fix — Option A (bound the reply by what was bought)</div>
+<pre>  function _requireReplyMethodCallBounded(MpcMethodCall memory methodCall) internal view {
+      uint256 weight = MinerRejectLib.structuralSize(methodCall);
+      if (weight &gt; maxReplyMethodCallBytes()) revert ResponseOutOfBounds(weight, maxReplyMethodCallBytes());
+<span class="a">+     uint256 required = _expectedMinFeeGasUnits(weight, _remoteMinFeeConfigMem());</span>
+<span class="a">+     if (required &gt; incomingRequest.callerFee) revert ResponseOutOfBounds(required, incomingRequest.callerFee);</span>
+  }</pre>
+<div class="lbl fix">Fix — Option B (charge worst-case reply at send time)</div>
+<pre><span class="r">- if (callerGasLocalUnits &lt; expectedMinFee(dataSize, localMin)) revert CallbackFeeTooLow(callerGasLocalUnits);</span>
+<span class="a">+ if (callerGasLocalUnits &lt; expectedMinFee(maxReplyMethodCallBytes(), localMin)) revert CallbackFeeTooLow(callerGasLocalUnits);</span></pre>
+</div></div>
+
+<!-- 3 -->
+<div class="finding"><div class="fhead">
+<span class="conf c85">85</span><h3>3. Callback fee floor is priced from the request's size, not the reply's</h3>
+<div class="loc">InboxBase.sendTwoWayMessage · wrong-size-input-to-fee-formula</div></div><div class="body">
+<div class="lbl">Description</div>
+<p>One <code>dataSize = abi.encode(methodCall).length</code> is computed from the outbound request and passed to
+<code>_validateAndPrepareTwoWayFees</code> for <b>both</b> the target-leg and callback-leg minimums, while the protocol's own quoter
+<code>calculateTwoWayFeeRequiredInLocalToken</code> takes <code>remoteMethodCallSize</code> and <code>callBackMethodCallSize</code> as separate
+parameters — so the validator's floor and the quoter's price disagree whenever the reply differs in size from the
+request. This is finding 2 seen at its cause rather than its symptom.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+The price list has two columns — "size of your letter" and "size of the reply" — but the cashier only ever reads
+the first column and uses that number for both. The quote you were shown and the amount the till actually demands
+are computed differently.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+Wallets and front-ends display the quoted fee before a user signs. When the request is large and the reply small,
+the on-chain requirement exceeds the quote and the transaction <b>reverts after the user has already committed and
+paid gas</b>. When the reply is large, the user under-pays and the shortfall lands on the miner. Either way the
+displayed fee is unreliable, which is corrosive to user trust in a bridge where a failed transaction can look
+indistinguishable from lost funds.
+</div>
+<div class="lbl fix">Fix</div>
+<pre><span class="r">- (uint256 targetFeeGas, uint256 callerFeeGas) = _validateAndPrepareTwoWayFees(dataSize, msg.value, callbackFeeLocalWei);</span>
+<span class="a">+ (uint256 targetFeeGas, uint256 callerFeeGas) =</span>
+<span class="a">+     _validateAndPrepareTwoWayFees(dataSize, maxResponseSize, msg.value, callbackFeeLocalWei);</span>
+
+  // add maxResponseSize as a caller-declared parameter bounded by maxReplyMethodCallBytes(),
+  // store it on the Request, and enforce it in _requireReplyMethodCallBounded</pre>
+</div></div>
+
+<!-- 4 -->
+<div class="finding"><div class="fhead">
+<span class="conf c85">85</span><h3>4. Shipped fee template makes the admission band one gas unit wide and unreachable</h3>
+<div class="loc">InboxBase._createRequest · 2 agents + independently verified · degenerate-fee-band</div></div><div class="body">
+<div class="lbl">Description</div>
+<p><code>FeeManager.expectedMinFee</code> returns <code>constantFee</code> verbatim in constant-fee mode, so the floor and <code>_createRequest</code>'s
+<code>maxExecutionGas</code> ceiling are <b>both 25,000,000</b> in the shipped <code>FEE_CONFIG_COTI_SIDE</code> — a band of width 1 — while
+reachable values are quantized at <code>localPrice/remotePrice × gasPriceMul/Div</code> (≈60,000 at realistic ETH/COTI prices).
+25,000,000 is not a multiple of 60,000, so no <code>msg.value</code> satisfies both bounds. Config confirmed directly at
+<code>deploy-utils.ts:392-403</code> and its installation as <code>remote</code> at line 450. CI misses it because every test sets both
+prices to <code>1e18</code>, collapsing the step to 1. Note the file's own comment at line 390 reads "floor is lower",
+suggesting the author believed headroom existed.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+A shop where the minimum price is exactly £25 and the maximum price is also exactly £25 — but the till only accepts
+one denomination of coin, worth £1.50. There is no number of coins that makes exactly £25. Pay one coin less and
+you're under the minimum; one coin more and you're over the maximum. Nobody can ever complete a purchase. The
+shop's own test till was set up with 1p coins, so it always worked in rehearsal.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+Operationally the most severe finding in this report. If the shipped configuration is deployed as-is against
+realistic token prices, <b>every single message from Sepolia or Avalanche to COTI reverts</b> — not a degradation
+but a total outage of the entire bridge, present from the moment of deployment and affecting every user
+simultaneously. No deposit, withdrawal or transfer can be initiated. The failure is silent in testing and would
+first surface on mainnet. It is also fragile in the other direction: even if a particular price ratio happened to
+divide evenly, any subsequent price movement would break it again.
+</div>
+<div class="lbl fix">Fix — Option A (clamp instead of revert)</div>
+<pre><span class="r">- if (targetFeeGas &gt; remoteMax.maxExecutionGas) revert FeeGasTooHigh(targetFeeGas, remoteMax.maxExecutionGas);</span>
+<span class="a">+ if (targetFeeGas &gt; remoteMax.maxExecutionGas) targetFeeGas = remoteMax.maxExecutionGas;</span></pre>
+<div class="lbl fix">Fix — Option B (reject a degenerate config at validation)</div>
+<pre>  function _requireValidFeeConfig(LibFeeStorage.FeeConfig memory feeConfig) private pure {
+<span class="a">+     if (feeConfig.constantFee &gt; 0 &amp;&amp; feeConfig.maxExecutionGas == feeConfig.constantFee) {</span>
+<span class="a">+         revert FeeConfigInvalid(feeConfig);</span>
+<span class="a">+     }</span></pre>
+</div></div>
+
+<!-- 5 -->
+<div class="finding"><div class="fhead">
+<span class="conf c80">80</span><h3>5. Estimate suppresses LOG opcodes that are charged to the subcall it is metering</h3>
+<div class="loc">InboxEstimateGas._estimateExecutionGasForMiner · estimate-underreports-gas</div></div><div class="body">
+<div class="lbl">Description</div>
+<p><code>emit ResponseReceived</code> and <code>emit MessageSent</code> (plus the keccak in <code>_methodCallLogData</code>) execute <i>inside</i> the metered
+target subcall on a respond path, but are skipped under <code>_shouldEmit()</code>. <code>gasUsed</code> is measured strictly around that
+subcall, so it under-reports by ~8 gas per response byte — unbounded in reply size — and any <code>targetFee</code> sized from
+it under-funds the real execution.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+The dress rehearsal skips the scenes with the fireworks, then reports how long the show takes. The real
+performance includes the fireworks and runs longer than the rehearsal said it would. Anyone who booked the theatre
+based on the rehearsal timing books too short a slot.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+Miners size their batch transactions from this estimate. A systematic under-report means transactions that run out
+of gas — which then triggers finding 1 and reverts the entire batch rather than one message. This is the mechanism
+that makes finding 1 reachable in ordinary operation rather than only under deliberate attack, so the two compound:
+honest traffic produces the under-estimate, and the under-estimate produces the batch failure.
+</div>
+<div class="lbl fix">Fix</div>
+<pre><span class="r">- if (_shouldEmit()) { emit ResponseReceived(incomingRequestId, data); }</span>
+<span class="a">+ if (_shouldEmit()) { emit ResponseReceived(incomingRequestId, data); }</span>
+<span class="a">+ else { _estimateSuppressedLogGas += 375 * 3 + 8 * data.length; }</span>
+
+  // add _estimateSuppressedLogGas to the gasUsed reported by ExecutionGasEstimate</pre>
+</div></div>
+
+<!-- 6 -->
+<div class="finding"><div class="fhead">
+<span class="conf c80">80</span><h3>6. Expiry clock runs while the pause switch disables the cure</h3>
+<div class="loc">InboxMiner.retryFailedRequest · ttl-clock-runs-while-paused</div></div><div class="body">
+<div class="lbl">Description</div>
+<p><code>messageProcessingPaused</code> reverts <code>retryFailedRequest</code> at its first line while <code>block.timestamp</code> keeps advancing
+against the ingest-stamped <code>incomingRequest.timestamp</code>. Any pause longer than <code>maxMessageLife</code> (48 h default)
+converts every pending execution-failed request into a permanently dead one that any unprivileged party can
+finalize the instant the pause lifts. <code>setMaxMessageLife(1)</code> reproduces the same retroactive sweep in a single
+transaction.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+A parcel is held for 48 hours before being written off as lost. The depot closes for a week during an emergency.
+When it reopens, every parcel is now more than 48 hours old and gets written off at once — even though the depot
+being closed is precisely why nobody could collect them. The first person through the door on reopening day can
+trigger the mass write-off.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+The emergency pause — the exact tool an operator reaches for during an incident — becomes the thing that destroys
+every in-flight recoverable message the moment it is lifted. Users' prepaid fees are consumed producing failure
+notices instead of the operations they paid for, and the messages become permanently unrecoverable. The safety
+mechanism turns into the damage mechanism at the worst possible moment, and the resulting loss is attributable to
+the operator's own incident response rather than to the original incident.
+</div>
+<div class="lbl fix">Fix</div>
+<pre><span class="a">+ uint256 private _lastUnpausedAt;</span>
+  function setMessageProcessingPaused(bool paused) external onlyOwner {
+<span class="a">+     if (!paused &amp;&amp; messageProcessingPaused) _lastUnpausedAt = block.timestamp;</span>
+      messageProcessingPaused = paused;
+
+<span class="r">- if (life != 0 &amp;&amp; block.timestamp &gt; uint256(incomingRequest.timestamp) + uint256(life)) {</span>
+<span class="a">+ uint256 start = Math.max(uint256(incomingRequest.timestamp), _lastUnpausedAt);</span>
+<span class="a">+ if (life != 0 &amp;&amp; block.timestamp &gt; start + uint256(life)) {</span></pre>
+</div></div>
+
+<!-- 7 -->
+<div class="finding"><div class="fhead">
+<span class="conf c80">80</span><h3>7. Permissionless retry executes the target with caller-chosen gas</h3>
+<div class="loc">InboxMiner.retryFailedRequest · caller-controlled-gas-steering</div></div><div class="body">
+<div class="lbl">Description</div>
+<p>The retry branch sets <code>gasForCall = gasleft()</code> and deliberately ignores the prepaid budget, so an attacker choosing
+a low transaction gas limit can steer a gas-sensitive target into its degraded branch — the target's own nested call
+runs out of gas under EIP-150's 63/64 rule while the outer frame survives and returns cleanly. On that non-reverting
+return, <code>delete errors[requestId]</code> makes the outcome permanent and all later retries revert
+<code>RetryFailedRequestNotAFailedRequest</code>.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+Anyone may re-attempt a failed delivery, and whoever attempts it chooses how much time to allow. A hostile person
+allows only just enough — so the recipient half-completes the job and signs for it anyway. The record now says
+"delivered successfully", and no further attempts are permitted, ever.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+An attacker can force a partial or degraded outcome on somebody else's cross-chain operation and permanently lock
+it in, at the cost of one transaction. The victim application has no second chance and no on-chain signal
+distinguishing this from a genuine recovery — <code>RetryFailedRequestSuccess</code> is emitted either way. For a token
+bridge this is the difference between "your withdrawal is pending" and "your withdrawal completed with the wrong
+amount and cannot be retried".
+</div>
+<div class="lbl fix">Fix</div>
+<pre><span class="r">- if (kind == IncomingExecKind.Retry) { gasForCall = gasleft(); }</span>
+<span class="a">+ if (kind == IncomingExecKind.Retry) {</span>
+<span class="a">+     gasForCall = _localRequestExecutionBudget(incomingRequest.targetFee);</span>
+<span class="a">+     require(gasleft() &gt; gasForCall + POST_CALL_GAS_RESERVE, "retry underfunded");</span>
+<span class="a">+ }</span></pre>
+</div></div>
+
+<!-- 8 -->
+<div class="finding"><div class="fhead">
+<span class="conf c75">75</span><h3>8. Miner-reject escape hatch re-applies the cap that made the item unrejectable</h3>
+<div class="loc">InboxMiner._ingestMinerReject · 2 agents · escape-hatch-revert · below threshold, description only</div></div><div class="body">
+<div class="lbl">Description</div>
+<p>The reject branch skips the three admission caps so it can always clear a stuck nonce, but
+<code>_sendSystemErrorCallbackWithCode</code> → <code>_createRequest</code> re-checks the same stored <code>callerFee</code> against the same
+<code>remoteMinFeeConfig.maxExecutionGas</code>. After a cap reduction, both the normal branch and the escape hatch revert on
+the identical value and the lane wedges. The two-way reject path is untested — <code>test/InboxSizeCaps.ts</code> builds its
+only reject from a one-way send, so this code never executes in CI.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+The emergency lever that clears a jammed conveyor belt is itself wired through the jam. Pulling it does nothing,
+because the thing blocking the belt also blocks the lever.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+The single recovery mechanism for an unprocessable message fails in exactly the circumstance it exists for.
+Combined with strict message ordering, a routine fee-config change wedges a chain-to-chain lane permanently. The
+only remaining escape is for a miner to submit deliberately falsified data (claiming the message was one-way),
+which silently discards the sender's error callback and loses their prepaid fee with no record. Requires an admin
+config change to trigger, which is why it sits below the fix threshold — but config changes are routine operations,
+not exotic ones.
+</div>
+</div></div>
+
+<!-- 9 -->
+<div class="finding"><div class="fhead">
+<span class="conf c75">75</span><h3>9. System-error return leg is fail-unsafe</h3>
+<div class="loc">InboxBase._sendSystemErrorCallbackWithCode · 3 agents · below threshold, description only</div></div><div class="body">
+<div class="lbl">Description</div>
+<p>The helper already handles <code>callerFee == 0</code> by emitting locally and returning, but has no equivalent guard for an
+over-cap <code>callerFee</code> or an over-size error payload — so <code>_createRequest</code> can revert inside it. That takes down the
+whole batch on the encode-failure and miner-reject paths, and permanently bricks <code>retryFailedRequest</code>'s TTL branch,
+where the request becomes neither retryable nor terminalizable.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+The "we're sorry, your delivery failed" notice can itself fail to send. And when it does, it doesn't just get
+skipped — it brings down the entire depot with it.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+Converts isolated per-message failures into batch-wide failures across three separate call paths. On the expiry
+path there is no workaround at all: the message can neither be retried nor declared dead, and the prepaid fee is
+stranded permanently with no mechanism to recover or refund it. The existing <code>callerFee == 0</code> early-return shows
+the fail-safe pattern was understood — it was simply not extended to the other two ways this call can fail.
+</div>
+</div></div>
+
+<!-- 10 -->
+<div class="finding"><div class="fhead">
+<span class="conf c75">75</span><h3>10. Ingest-storage fee is returned to the sender as executable gas</h3>
+<div class="loc">InboxMiner._runIncomingExecution · fee-accounting-double-spend · below threshold, description only</div></div><div class="body">
+<div class="lbl">Description</div>
+<p><code>expectedMinFee</code> charges <code>dataSize * gasPerByte</code> explicitly to price destination ingest storage
+(<code>MEASURED_INGEST_GAS_PER_BYTE = 800</code>, commented "measured ingest ~690+"), but <code>_localRequestExecutionBudget</code>
+subtracts only the <code>errorLength</code> term. That same allotment is handed back as the subcall gas cap while the miner has
+already spent it on SSTOREs. <i>Scope note: the defective expression is in <code>FeeManager.localRequestExecutionBudget</code>,
+outside the four reviewed files; the in-scope consumer is <code>_runIncomingExecution</code>.</i></p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+You're charged separately for storing your parcel and for handling it. The depot then gives the storage money back
+to you as extra handling time — while still paying the storage cost out of its own pocket. It collects for one
+thing and delivers two.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+Structural under-collection of roughly 36% per message, growing linearly with payload size. Unlike finding 2, this
+affects <b>ordinary honest traffic</b>, not just attacker-crafted messages — every message the bridge carries loses
+the operator money. The end state is the same as finding 2 (miners become unprofitable and stop), but it arrives
+without anyone attacking the system, simply as a function of normal usage volume.
+</div>
+</div></div>
+
+<!-- 11 -->
+<div class="finding"><div class="fhead">
+<span class="conf c75">75</span><h3>11. TTL terminalization writes half the record and emits nothing on one-way</h3>
+<div class="loc">InboxMiner.retryFailedRequest · 3 agents · below threshold, description only</div></div><div class="body">
+<div class="lbl">Description</div>
+<p>The TTL branch writes only <code>errors[requestId].errorCode = ERROR_CODE_EXPIRED</code>, leaving <code>errorMessage</code> holding the
+prior execution revert data — so <code>getOutboxError</code> returns code 4 paired with stale bytes. And because
+<code>_sendSystemErrorCallbackWithCode</code> returns early when <code>errorSelector == 0</code>, which <code>sendOneWayMessage</code> enforces for
+every one-way request, permanent terminalization of a one-way message emits <b>zero events</b>.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+When a parcel is written off, only the status stamp is updated — the "reason" field still contains the previous,
+different explanation. And for one whole category of parcel, the write-off is announced to nobody at all. It simply
+becomes true, silently.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+Monitoring, indexing and support tooling cannot distinguish a still-recoverable message from a permanently dead
+one, and will decode the wrong failure reason when reading the code/message pair that the interface documents as
+belonging together. Operations teams lose visibility into precisely the failures they most need to see, and users
+contacting support about a stuck transfer cannot be given an accurate answer. No funds move incorrectly — the harm
+is entirely to observability — which is why it sits below the fix threshold.
+</div>
+</div></div>
+
+<!-- 12 -->
+<div class="finding"><div class="fhead">
+<span class="conf c72">72</span><h3>12. Ordinary execution failure produces no error return leg</h3>
+<div class="loc">InboxMiner._runIncomingExecution · below threshold, description only</div></div><div class="body">
+<div class="lbl">Description</div>
+<p>The <code>if (!success)</code> branch records the error but never calls <code>_sendSystemErrorCallback</code>, even though the sender was
+compelled to register a non-zero <code>errorSelector</code> and was charged an <code>errorLength * gasPerByte</code> reserve for exactly
+that purpose. The only producer is the voluntary, unrewarded TTL branch of <code>retryFailedRequest</code> — which is
+unreachable entirely when <code>maxMessageLife == 0</code>, a documented and supported setting.</p>
+<div class="lbl plain">In plain English</div><div class="plainbox">
+If the recipient formally refuses your parcel, you're told. If the depot's own machinery jams, you're told. But if
+the recipient simply crashes when opening it, nobody tells you — you just wait. After 48 hours a passing volunteer
+might file the paperwork, if one happens along. If the depot has switched off the 48-hour rule, nobody ever files it.
+</div>
+<div class="lbl impact">Impact if not fixed</div><div class="impactbox">
+Applications waiting on a two-way message hang with user funds escrowed, dependent on an unrewarded volunteer
+calling a public function that nobody is obliged to call. Under the default 48-hour setting this resolves slowly
+and badly; with <code>maxMessageLife = 0</code> it never resolves at all. For the privacy portal specifically, this is the
+difference between a deposit that eventually becomes refundable and one that sits in limbo indefinitely, with the
+user's collateral locked and no on-chain path to release it.
+</div>
+</div></div>
+
+<h2 class="pb">Leads</h2>
+<p>Vulnerability trails with concrete code smells where the full exploit path could not be completed in one analysis
+pass. These are not false positives — they are high-signal leads for manual review. Not scored.</p>
+<ul>
+<li><b>Unchecked length overflow in assembly decoder</b> — <code>InboxBase._tryDecodeAbiBytes</code>. <code>iszero(gt(add(0x40, len), retLen))</code> uses unchecked <code>add</code>, so <code>len ≥ 2²⁵⁶−0x40</code> wraps and passes, yielding a <code>bytes</code> whose length word flows into <code>_callWithCappedReturnData</code> as the CALL input size. Unreachable today only because <code>mpcAbiReEncode</code> is fixed at <code>init</code> with no setter. Flagged by 6 of 12 agents; one-word fix.</li>
+<li><b>Gas reserve silently skipped</b> — <code>InboxMiner._computeUserCallGas</code>. <code>if (gasForCall &gt; outerReserve) { gasForCall -= outerReserve; }</code> has no <code>else</code>, so when <code>gasleft() ≤ outerReserve</code> the reserve is abandoned entirely and the target receives 63/64 of everything.</li>
+<li><b>Permissionless estimate as forged-context primitive</b> — <code>InboxEstimateGas._estimateExecutionGasForMiner</code>. No <code>onlyMiner</code>, no <code>nonReentrant</code>, no pause check, no duplicate guard; overwrites live <code>incomingRequests[]</code> and calls an arbitrary target with forged <code>inboxMsgSender()</code>. Contained <i>only</i> by the unconditional terminal revert.</li>
+<li><b>Uncapped gas on the re-encode delegatecall</b> — <code>InboxBase._safeEncodeMethodCall</code>. Forwards all gas with no reserve, before any budget applies; the non-reverting recovery costs ~1.1M gas while EIP-150 leaves only 1/64.</li>
+<li><b>Unpriced ingest storage at protocol ceiling</b> — <code>InboxMiner.batchProcessRequests</code>. A 32,768-byte payload costs 22.6M gas of cold SSTOREs inside the contiguity-critical loop. Demoted: the shipped <code>gasPerByte = 800</code> prices this correctly and reaching the ceiling needs admin config beyond defaults.</li>
+<li><b>Cross-chain cap mirroring is unenforced</b> — <code>InboxBase._createRequest</code> / <code>InboxMiner.batchProcessRequests</code>. Lane liveness depends on three inequalities between two independently-owned templates that cannot be updated atomically; ingest reverts rather than skipping.</li>
+<li><b>Front-runnable initializer</b> — <code>Inbox.init</code>. No caller check, <code>_disableInitializers()</code> deliberately omitted, both DELEGATECALL targets set once with no setters. Mitigation is entirely off-chain.</li>
+<li><b>System error masquerades as response</b> — <code>InboxBase.getInboxResponse</code>. <code>inboxResponses[]</code> carries both genuine target responses and Inbox-generated error payloads with no discriminator.</li>
+<li><b>Read-then-refresh oracle ordering</b> — <code>InboxBase.sendTwoWayMessage</code> / <code>sendOneWayMessage</code>. Fee computed from the cache, <code>refreshCache()</code> called after; the sender always pays the pre-refresh ratio and subsidizes the next caller's update.</li>
+</ul>
+
+<p style="margin-top:8pt"><b>Out of scope, surfaced incidentally.</b> <code>MpcExecutorCotiProxyInbox.registerExecutor</code> has a
+completely unguarded one-shot setter (first-caller-wins) and sits under <code>contracts/mpc/coti-side/</code>, not the test
+tree. <code>FeeManager.setMaxReplyMethodCallBytes</code> rejects only zero, with no protocol ceiling unlike
+<code>maxMethodCallBytes</code>.</p>
+
+<div class="disclaimer">
+⚠️ This review was performed by an AI assistant. AI analysis can never verify the complete absence of
+vulnerabilities and no guarantee of security is given. No finding in this report has an executable proof-of-concept;
+evidence is static analysis, gas arithmetic and traced call paths. Team security reviews, bug bounty programs, and
+on-chain monitoring are strongly recommended. For a consultation regarding your projects' security, visit
+https://www.pashov.com
+</div>
+
+</body></html>
