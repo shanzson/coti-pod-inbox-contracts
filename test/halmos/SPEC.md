@@ -356,6 +356,20 @@ verified in integer form as `T·lp·mul_r ≤ (t·div_r + mul_r)·rp·P + lp·mu
 `< (1 + rp/lp)·P + P` wei on the target leg and `< P` wei on the callback leg
 — rounding dust, no compounding overcharge.
 
+### Group H — error-returndata DoS bound (miner-transport safety)
+
+`InboxBase._capErrorReturnData` (InboxBase.sol:779) truncates a `bytes memory` **in place**
+to at most `MAX_ERROR_RETURN_DATA = 256` bytes: `if gt(mload(data), 256) { mstore(data, 256) }`.
+Failure payloads are written to storage and emitted, so an unbounded one could OOG the miner
+tx or wedge the contiguous-nonce queue.
+
+**P-CAP-LEN.** For all `d`: `|capErr(d)| = min(|d|, 256) ≤ 256`.
+**P-CAP-PREFIX.** For all `d` and all `i < min(|d|, 256)`: `capErr(d)[i] = d[i]` — the retained
+prefix is byte-for-byte the original (covers both the identity case `|d| ≤ 256` and the
+truncation case `|d| > 256`). Verified at concrete lengths straddling the strict-`gt` boundary
+`{0, 1, 255, 256, 257, 300}` with symbolic content (byte-length is not cheaply symbolic in
+Halmos; stated as bounded-completeness, like P-REJ2).
+
 ---
 
 ## 4. Halmos encoding plan (written only after the math is approved)
@@ -409,6 +423,27 @@ verified in integer form as `T·lp·mul_r ≤ (t·div_r + mul_r)·rp·P + lp·mu
   `⌊F_cb/P⌋·mul_l < 2¹³⁵`. Every `mulDiv` stays on the `high = 0` fast path; the
   property is claimed proven on that stated domain only (still astronomically beyond
   any real payment: `2¹¹⁹` wei ≈ 6.6·10¹⁷ whole tokens).
+
+### 4a. Mechanization addendum — what actually discharges (concrete-divisor scoping)
+
+§1's domain note assumed that keeping every product under 2²⁵⁶ (OZ mulDiv's `high = 0` fast
+path) would suffice for the solver. In practice it does not: a `udiv`/`mulDiv` by a **symbolic
+divisor** stays nonlinear and Z3 does not close it, even on the fast path — so the fully-symbolic
+encodings of L1–L5, P-EQ1, P-CFGNR, P-TIGHT and the variable-config round-trips (P-RT1/RT2) time
+out rather than proving. The mechanized suite therefore pins the divisor-bearing parameters
+(`gasPriceMul/Div`, the token prices, the reference gas price) to a **representative concrete
+matrix** — `mul=div`, `div=1`, `mul=1`, small `div>mul`/`mul>div`, the `65535:1` extreme, and
+moderate price ratios — and keeps each property's **primary variable(s)** (payload size, exec
+gas, fee amount, or `req`/`F`) fully symbolic. Every such test is a genuine ∀-proof over its
+symbolic dimension for that config; where two divisions are compared (monotonicity, the
+quote→validate round-trip) a **dense symbolic window** is used (a complete ∀ over 32–256
+consecutive values), sometimes alongside a full-range single-division companion (e.g. L4a
+`fee(s) ≥ fee(0)` over all 2³²). Pure revert / observational / subtraction properties (P-CFG0,
+P-REF, P-BUD, P-CAP, packing, codec) keep their wide symbolic domains. Bounds are the
+empirically-tuned ones that discharge under `halmos.toml`'s per-assertion solver timeout; each is
+stated in-code. This trades the SPEC's config-generality for actual machine-checked proofs — the
+underlying lemmas remain true on the full domain (§1), and the concrete matrix exercises the
+`mul=div`, `div>mul`, `mul>div`, and extreme-ratio rounding regimes that the generality was for.
 
 ## 5. Explicitly out of scope
 

@@ -5,6 +5,7 @@ import {FeeManagerStubBase} from "../../../contracts/fee/FeeManagerStubBase.sol"
 import {LibFeeStorage} from "../../../contracts/fee/LibFeeStorage.sol";
 import {PriceOracle} from "../../../contracts/fee/PriceOracle.sol";
 import {MinerRejectLib} from "../../../contracts/lib/MinerRejectLib.sol";
+import {InboxBase} from "../../../contracts/InboxBase.sol";
 import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
 
 /// @dev Oracle stand-in satisfying the only call the fee paths make. Prices are set by
@@ -64,5 +65,17 @@ contract RejectCodecWrapper {
 
     function derivedSlot() external pure returns (bytes32) {
         return LibFeeStorage.erc7201Slot();
+    }
+}
+
+/// @dev Exposes InboxBase's internal _capErrorReturnData (returndata DoS bound). InboxBase is
+///      concrete with no constructor; this adds zero logic of its own (spec §4, Group G provision).
+contract InboxCapHarness is InboxBase {
+    function capErrorReturnData(bytes memory d) external pure returns (bytes memory) {
+        return _capErrorReturnData(d);
+    }
+
+    function maxErrorReturnData() external pure returns (uint256) {
+        return MAX_ERROR_RETURN_DATA;
     }
 }

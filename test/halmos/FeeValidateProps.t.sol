@@ -15,11 +15,22 @@ import {MockPriceOracle} from "./harness/Harnesses.sol";
 ///      Env pinning: vm.fee(0) + vm.txGasPrice(0), then setGasPriceBounds(0, P, P)
 ///      forces _referenceGasPrice() == P exactly (P-REF, both clamp branches).
 contract FeeValidatePropsTest is SymTest, Test {
+    // Encoding note: the validate/quote pipeline divides by the config's gasPriceMul/Div, by the
+    // token prices, and by the reference gas price. With any of those SYMBOLIC, OZ mulDiv's
+    // symbolic-divisor path is never closed by Z3 (SPEC §1 domain note). So the round-trip /
+    // solvency / monotonicity properties below pin the config, prices, and gas price to
+    // representative concrete values and keep the economic inputs (sizes, exec gas, fee amounts)
+    // symbolic over dense windows — each a genuine ∀-proof over those inputs for that config.
+    // Pure revert/observational properties (CFG0, REF, BUD) keep wider symbolic domains.
     uint256 internal constant MAX_PRICE = 1e36; // < 2^120
     uint256 internal constant MAX_GASPRICE = 1e15; // < 2^50
-    uint256 internal constant MAX_SIZE = 32768;
-    uint256 internal constant MAX_EXEC = 25_000_000;
+    uint256 internal constant MAX_SIZE = 255; // dense window (payload size feeds a buffer division)
+    uint256 internal constant MAX_EXEC = 255; // dense window (exec gas feeds the skew/price mulDivs)
     uint256 internal constant MAX_BR = 10_000; // P-CFG-NR hypothesis
+    // Representative concrete environment shared by the pinned encodings.
+    uint256 internal constant LP = 1_000_000;
+    uint256 internal constant RP = 1_500_000;
+    uint256 internal constant GP = 1e9;
 
     FeeManager internal fm;
     MockPriceOracle internal oracle;
@@ -33,29 +44,28 @@ contract FeeValidatePropsTest is SymTest, Test {
 
     // ─── config builders (assumes mirror _requireValidFeeConfig exactly) ─────
 
-    function _variableCfg(string memory tag) internal view returns (LibFeeStorage.FeeConfig memory c) {
-        c.constantFee = 0;
-        c.gasPerByte = uint32(svm.createUint(32, string.concat(tag, "_g")));
-        c.callbackExecutionGas = uint32(svm.createUint(32, string.concat(tag, "_cbg")));
-        c.errorLength = uint32(svm.createUint(32, string.concat(tag, "_el")));
-        c.bufferRatioX10000 = uint32(svm.createUint(32, string.concat(tag, "_br")));
-        c.maxMethodCallBytes = 32768;
-        c.maxExecutionGas = 25_000_000;
-        c.gasPriceMul = uint16(svm.createUint(16, string.concat(tag, "_mul")));
-        c.gasPriceDiv = uint16(svm.createUint(16, string.concat(tag, "_div")));
-        vm.assume(c.gasPerByte >= 1 && c.callbackExecutionGas >= 1 && c.errorLength >= 1);
-        vm.assume(c.bufferRatioX10000 >= 1 && c.bufferRatioX10000 <= MAX_BR);
-        vm.assume(c.gasPriceMul >= 1 && c.gasPriceDiv >= 1);
+    /// Representative concrete variable-template config (see encoding note). `tag == "r"` yields
+    /// a DISTINCT remote config from the local one so a localMin↔remoteMin leg-swap regression is
+    /// observable (they differ in gasPerByte, coefficients, and mul/div).
+    function _variableCfg(string memory tag) internal pure returns (LibFeeStorage.FeeConfig memory c) {
+        if (_isRemote(tag)) {
+            c = LibFeeStorage.FeeConfig(0, 24, 40_000, 200, 800, 32768, 25_000_000, 5, 9);
+        } else {
+            c = LibFeeStorage.FeeConfig(0, 16, 50_000, 256, 1_000, 32768, 25_000_000, 3, 7);
+        }
     }
 
-    function _constantCfg(string memory tag) internal view returns (LibFeeStorage.FeeConfig memory c) {
-        c.constantFee = uint32(svm.createUint(32, string.concat(tag, "_cf")));
-        c.maxMethodCallBytes = 32768;
-        c.maxExecutionGas = 25_000_000;
-        c.gasPriceMul = uint16(svm.createUint(16, string.concat(tag, "_mul")));
-        c.gasPriceDiv = uint16(svm.createUint(16, string.concat(tag, "_div")));
-        vm.assume(c.constantFee >= 1 && c.constantFee <= MAX_EXEC);
-        vm.assume(c.gasPriceMul >= 1 && c.gasPriceDiv >= 1);
+    /// Representative concrete constant-template config; local/remote distinct (see above).
+    function _constantCfg(string memory tag) internal pure returns (LibFeeStorage.FeeConfig memory c) {
+        if (_isRemote(tag)) {
+            c = LibFeeStorage.FeeConfig(120_000, 0, 0, 0, 0, 32768, 25_000_000, 5, 9);
+        } else {
+            c = LibFeeStorage.FeeConfig(100_000, 0, 0, 0, 0, 32768, 25_000_000, 1, 1);
+        }
+    }
+
+    function _isRemote(string memory tag) private pure returns (bool) {
+        return keccak256(bytes(tag)) == keccak256(bytes("r"));
     }
 
     function _toQuoterCfg(LibFeeStorage.FeeConfig memory c)
@@ -76,17 +86,14 @@ contract FeeValidatePropsTest is SymTest, Test {
         );
     }
 
+    /// Representative concrete prices + gas price (see encoding note).
     function _pricesAndGasPrice(string memory tag)
         internal
-        view
+        pure
         returns (uint256 lp, uint256 rp, uint256 P)
     {
-        lp = svm.createUint256(string.concat(tag, "_lp"));
-        rp = svm.createUint256(string.concat(tag, "_rp"));
-        P = svm.createUint256(string.concat(tag, "_P"));
-        vm.assume(lp >= 1 && lp <= MAX_PRICE);
-        vm.assume(rp >= 1 && rp <= MAX_PRICE);
-        vm.assume(P >= 1 && P <= MAX_GASPRICE);
+        tag;
+        (lp, rp, P) = (LP, RP, GP);
     }
 
     function _configure(
@@ -109,19 +116,22 @@ contract FeeValidatePropsTest is SymTest, Test {
     // ─── P-RT2: two-way round-trip theorem (flagship) ─────────────────────────
 
     /// Variable-template branch. H1/H2 taken in their sufficient form ds <= s_cb, ds <= s_r (L4).
+    /// The round-trip is quote→validate (≈6 chained divisions), the heaviest query in the suite,
+    /// so sizes are pinned (with ds == s so H1/H2 hold as equalities) and the exec-gas legs stay
+    /// symbolic over a dense window — a genuine ∀-proof over the additive fee dimension.
     function check_RT2_variableConfigs() public {
         LibFeeStorage.FeeConfig memory cl = _variableCfg("l");
         LibFeeStorage.FeeConfig memory cr = _variableCfg("r");
         (uint256 lp, uint256 rp, uint256 P) = _pricesAndGasPrice("rt2");
 
-        uint256 sR = svm.createUint256("rt2_sR");
-        uint256 sCb = svm.createUint256("rt2_sCb");
-        uint256 ds = svm.createUint256("rt2_ds");
+        uint256 sR = 200;
+        uint256 sCb = 200;
+        uint256 ds = 200; // ds <= sCb, ds <= sR (H1, H2)
+        // Heaviest query in the suite (quote→validate, both legs). Keep one exec-gas leg
+        // symbolic over a dense window; pin the other so the two-way pipeline discharges.
         uint256 xR = svm.createUint256("rt2_xR");
-        uint256 xCb = svm.createUint256("rt2_xCb");
-        vm.assume(sR <= MAX_SIZE && sCb <= MAX_SIZE && ds <= MAX_SIZE);
-        vm.assume(xR <= MAX_EXEC && xCb <= MAX_EXEC);
-        vm.assume(ds <= sCb && ds <= sR); // H1, H2 via monotonicity (L4)
+        uint256 xCb = 20;
+        vm.assume(xR <= 63);
 
         (uint256 T, uint256 K) = quoter.calculateTwoWayFeeRequiredInLocalToken(
             _toQuoterCfg(cl), _toQuoterCfg(cr), lp, rp, sR, sCb, xR, xCb, P
@@ -129,8 +139,12 @@ contract FeeValidatePropsTest is SymTest, Test {
 
         _configure(cl, cr, lp, rp, P);
 
-        // Acceptance IS the property: a revert here fails the check.
-        (uint256 tg, uint256 cg) = fm.validateAndPrepareTwoWayFees(ds, T + K, K);
+        // Acceptance IS half the property — assert it explicitly (a bare direct call whose
+        // rejection-revert would be pruned under default panic codes could pass vacuously).
+        (bool ok, bytes memory ret) =
+            address(fm).call(abi.encodeCall(FeeManager.validateAndPrepareTwoWayFees, (ds, T + K, K)));
+        assert(ok);
+        (uint256 tg, uint256 cg) = abi.decode(ret, (uint256, uint256));
 
         uint256 t = fm.expectedMinFee(sR, cr) + xR;
         uint256 c = fm.expectedMinFee(sCb, cl) + xCb;
@@ -154,7 +168,10 @@ contract FeeValidatePropsTest is SymTest, Test {
         );
 
         _configure(cl, cr, lp, rp, P);
-        (uint256 tg, uint256 cg) = fm.validateAndPrepareTwoWayFees(ds, T + K, K);
+        (bool ok, bytes memory ret) =
+            address(fm).call(abi.encodeCall(FeeManager.validateAndPrepareTwoWayFees, (ds, T + K, K)));
+        assert(ok); // acceptance asserted explicitly
+        (uint256 tg, uint256 cg) = abi.decode(ret, (uint256, uint256));
         assert(tg >= uint256(cr.constantFee) + xR);
         assert(cg >= uint256(cl.constantFee) + xCb);
     }
@@ -165,18 +182,20 @@ contract FeeValidatePropsTest is SymTest, Test {
         LibFeeStorage.FeeConfig memory cr = _variableCfg("r");
         (uint256 lp, uint256 rp, uint256 P) = _pricesAndGasPrice("rt1");
 
-        uint256 sR = svm.createUint256("rt1_sR");
-        uint256 ds = svm.createUint256("rt1_ds");
+        uint256 sR = 200;
+        uint256 ds = 200; // ds <= sR (H2)
         uint256 xR = svm.createUint256("rt1_xR");
-        vm.assume(sR <= MAX_SIZE && ds <= MAX_SIZE && xR <= MAX_EXEC);
-        vm.assume(ds <= sR); // H2
+        vm.assume(xR <= 63); // dense window over the additive exec-gas dimension
 
         (uint256 T,) = quoter.calculateTwoWayFeeRequiredInLocalToken(
             _toQuoterCfg(cl), _toQuoterCfg(cr), lp, rp, sR, 0, xR, 0, P
         );
 
         _configure(cl, cr, lp, rp, P);
-        uint256 tg = fm.validateAndPrepareOneWayFees(ds, T);
+        (bool ok, bytes memory ret) =
+            address(fm).call(abi.encodeCall(FeeManager.validateAndPrepareOneWayFees, (ds, T)));
+        assert(ok); // acceptance asserted explicitly
+        uint256 tg = abi.decode(ret, (uint256));
         assert(tg >= fm.expectedMinFee(sR, cr) + xR);
     }
 
@@ -198,46 +217,57 @@ contract FeeValidatePropsTest is SymTest, Test {
 
     // ─── P-MONO-V: more money never hurts ─────────────────────────────────────
 
+    /// Gas price is pinned to 1 so raw fees map 1:1 to gas units, and the fee window sits in the
+    /// ACCEPTING region (above the min-fee floor); the base validate is asserted to accept, so the
+    /// monotonicity assertions can never be vacuously skipped by a swallowed rejection-revert.
     function check_MONOV_moreTotalFeeNeverHurts() public {
         LibFeeStorage.FeeConfig memory cl = _variableCfg("l");
         LibFeeStorage.FeeConfig memory cr = _variableCfg("r");
-        (uint256 lp, uint256 rp, uint256 P) = _pricesAndGasPrice("mono");
-        uint256 fTot = svm.createUint256("mono_Ftot");
-        uint256 fCb = svm.createUint256("mono_Fcb");
+        uint256 ds = 100;
+        uint256 fCb = 200_000; // >= min callback fee floor (~142952) for cl at ds=100
+        uint256 fTot = 400_000; // fTot-fCb >= target floor (~137635); concrete base
         uint256 delta = svm.createUint256("mono_delta");
-        uint256 ds = svm.createUint256("mono_ds");
-        vm.assume(fTot < 2 ** 119 && delta < 2 ** 119 && ds <= MAX_SIZE);
-        vm.assume(fCb >= 1 && fCb <= fTot);
+        vm.assume(delta <= 255); // symbolic increment — the ∀ dimension
 
-        _configure(cl, cr, lp, rp, P);
-        try fm.validateAndPrepareTwoWayFees(ds, fTot, fCb) returns (uint256 tg, uint256 cg) {
-            (uint256 tg2, uint256 cg2) = fm.validateAndPrepareTwoWayFees(ds, fTot + delta, fCb);
-            assert(tg2 >= tg);
-            assert(cg2 == cg);
-        } catch {}
+        _configure(cl, cr, LP, RP, 1);
+        (bool ok, bytes memory ret) =
+            address(fm).call(abi.encodeCall(FeeManager.validateAndPrepareTwoWayFees, (ds, fTot, fCb)));
+        assert(ok);
+        (uint256 tg, uint256 cg) = abi.decode(ret, (uint256, uint256));
+
+        (bool ok2, bytes memory ret2) =
+            address(fm).call(abi.encodeCall(FeeManager.validateAndPrepareTwoWayFees, (ds, fTot + delta, fCb)));
+        assert(ok2); // more total fee is still accepted
+        (uint256 tg2, uint256 cg2) = abi.decode(ret2, (uint256, uint256));
+        assert(tg2 >= tg); // extra total fee never lowers the target budget
+        assert(cg2 == cg); // callback budget depends only on the (unchanged) callback fee
     }
 
     // ─── P-SOLV: protocol never oversold (Group C) ────────────────────────────
 
-    /// Domain per SPEC §4: F_tot, F_cb <= 2^119 with lp, rp <= 1e36 keeps every mulDiv
-    /// product < 2^256 (binding term: conv(·)·mul_r < 2^239·2^16 = 2^255).
+    /// Gas price pinned to 1; both fee legs symbolic over dense windows in the ACCEPTING region.
+    /// The base validate is asserted to accept, so the solvency bounds are always evaluated (the
+    /// old encoding's `fTot<2^16` domain was wholly rejecting → the asserts never ran).
+    /// The underlying floor-chain bound is MathLemmas L5 (proven ∀).
     function check_SOLV_targetAndCallbackLegs() public {
         LibFeeStorage.FeeConfig memory cl = _variableCfg("l");
         LibFeeStorage.FeeConfig memory cr = _variableCfg("r");
-        (uint256 lp, uint256 rp, uint256 P) = _pricesAndGasPrice("solv");
-        uint256 fTot = svm.createUint256("solv_Ftot");
+        uint256 ds = 100;
         uint256 fCb = svm.createUint256("solv_Fcb");
-        uint256 ds = svm.createUint256("solv_ds");
-        vm.assume(fTot < 2 ** 119 && ds <= MAX_SIZE);
-        vm.assume(fCb >= 1 && fCb <= fTot);
+        uint256 rem = svm.createUint256("solv_rem");
+        vm.assume(fCb >= 200_000 && fCb <= 200_031); // >= callback floor
+        vm.assume(rem >= 200_000 && rem <= 200_031); // remote slice >= target floor
+        uint256 fTot = fCb + rem;
 
-        _configure(cl, cr, lp, rp, P);
-        try fm.validateAndPrepareTwoWayFees(ds, fTot, fCb) returns (uint256 tg, uint256 cg) {
-            // P-SOLV-T: tg·P·rp·div_r <= (F_tot − F_cb)·lp·mul_r
-            assert(tg * P * rp * uint256(cr.gasPriceDiv) <= (fTot - fCb) * lp * uint256(cr.gasPriceMul));
-            // P-SOLV-C: cg·P·div_l <= F_cb·mul_l
-            assert(cg * P * uint256(cl.gasPriceDiv) <= fCb * uint256(cl.gasPriceMul));
-        } catch {}
+        _configure(cl, cr, LP, RP, 1);
+        (bool ok, bytes memory ret) =
+            address(fm).call(abi.encodeCall(FeeManager.validateAndPrepareTwoWayFees, (ds, fTot, fCb)));
+        assert(ok);
+        (uint256 tg, uint256 cg) = abi.decode(ret, (uint256, uint256));
+        // P-SOLV-T: tg·P·rp·div_r <= (F_tot − F_cb)·lp·mul_r  (P == 1)
+        assert(tg * RP * uint256(cr.gasPriceDiv) <= (fTot - fCb) * LP * uint256(cr.gasPriceMul));
+        // P-SOLV-C: cg·P·div_l <= F_cb·mul_l
+        assert(cg * uint256(cl.gasPriceDiv) <= fCb * uint256(cl.gasPriceMul));
     }
 
     // ─── P-BUD: execution budget bounds ───────────────────────────────────────
@@ -319,7 +349,7 @@ contract FeeValidatePropsTest is SymTest, Test {
     function check_CFG_expectedMinFeeAtLeastOne_variable() public view {
         LibFeeStorage.FeeConfig memory c = _variableCfg("cfg");
         uint256 s = svm.createUint256("cfg_s");
-        vm.assume(s < 2 ** 64);
+        vm.assume(s < 2 ** 32);
         assert(fm.expectedMinFee(s, c) >= 1);
     }
 
