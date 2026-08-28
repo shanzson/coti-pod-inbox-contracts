@@ -142,3 +142,7 @@ artifacts/
 cache/
 types/
 node_modules/
+
+# Foundry/Halmos (halmos-formal)
+out/
+cache/

@@ -1,0 +1,30 @@
+# Foundry profile for Halmos formal verification (halmos-formal branch).
+# Mirrors hardhat.config.ts compiler settings so verified bytecode matches production.
+[profile.default]
+src = "contracts"
+test = "test/halmos"
+out = "out"
+libs = ["node_modules", "lib"]
+solc = "0.8.28"
+via_ir = true
+optimizer = true
+optimizer_runs = 1
+evm_version = "shanghai"
+bytecode_hash = "none"
+ast = true
+# Halmos cannot execute the deployCode() cheatcode that dynamic test linking injects
+# in place of `new X()` — embed real initcode instead.
+dynamic_test_linking = false
+allow_paths = ["../coti-contracts"]
+remappings = [
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@coti-io/coti-contracts/=../coti-contracts/",
+    "forge-std/=lib/forge-std/src/",
+    "halmos-cheatcodes/=lib/halmos-cheatcodes/src/",
+]
+
+# Halmos-specific profile: identical semantics, but without via-IR so builds are fast
+# during iteration. Final verification runs use the default profile.
+[profile.fast]
+via_ir = false
+optimizer = false

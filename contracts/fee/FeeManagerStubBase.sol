@@ -216,7 +216,7 @@ abstract contract FeeManagerStubBase is ModuleCallBase {
     }
 
     function collectFees(address payable to) public virtual {
-        _delegateModule(feeManager, abi.encodeCall(FeeManager.collectFees, (to)));
+        _delegateModule(feeManager, abi.encodeCall(FeeManager.collectFees, (to))); // @audit collect's fees
     }
 
     // ─── Validate / budget (internal for send/mine) ──────────────────────────

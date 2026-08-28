@@ -51,61 +51,113 @@
   .note { background: #fdf9ec; border-left: 2pt solid #8a6a12; padding: 6pt 8pt; margin: 8pt 0; font-size: 9pt; }
   .disclaimer { margin-top: 14pt; padding: 7pt 9pt; background: #f1f2f4; font-size: 8.4pt; color: #40454d; }
   .pb { page-break-before: always; }
+  .poc { float: right; font-weight: 700; font-size: 7.4pt; padding: 1pt 5pt; border-radius: 2px; color: #fff; margin-left: 5pt; letter-spacing: 0.2pt; }
+  .poc-y { background: #1f6b4a; }
+  .poc-i { background: #8a6a12; }
+  td .vy { color: #1f6b4a; font-weight: 700; }
+  td .vi { color: #8a6a12; font-weight: 700; }
+  .correction { background: #fbf3f2; border-left: 2.5pt solid #a02c1f; padding: 6pt 8pt; margin: 0 0 6pt; }
+  .correction b { color: #a02c1f; }
+  .sev { display:inline-block; font-size:7pt; font-weight:700; padding:0.5pt 4pt; border-radius:2px;
+         color:#fff; margin-right:5pt; letter-spacing:0.3pt; }
+  .sev-h { background:#a02c1f; } .sev-m { background:#b5541c; } .sev-l { background:#4a5560; } .sev-u { background:#8a6a12; }
+  td .cvh { color:#a02c1f; font-weight:700; } td .cvm { color:#b5541c; font-weight:700; }
+  td .cvl { color:#4a5560; font-weight:700; } td .cvi { color:#8a6a12; font-weight:700; }
+  .legend { font-size:8.2pt; color:#40454d; margin:6pt 0 10pt; }
+  .legend b { color:#1a1a1a; }
 </style></head>
 <body>
 
 <h1>Security Review — Inbox</h1>
-<p class="sub">COTI PoD Inbox contracts · <span class="m">InboxBase</span> inheritance chain · 12-agent parallel audit</p>
+<p class="sub">COTI PoD Inbox contracts · <span class="m">InboxBase</span> inheritance chain · 12-agent parallel audit · <b>PoC-verified on a live EVM</b></p>
 
 <table>
   <tr><th style="width:26%">Field</th><th>Value</th></tr>
   <tr><td>Mode</td><td>Named files (4)</td></tr>
   <tr><td>Files reviewed</td><td class="m">InboxBase.sol (820) · InboxEstimateGas.sol (142) · InboxMiner.sol (421) · Inbox.sol (43)</td></tr>
   <tr><td>Repository</td><td class="m">coti-pod-inbox-contracts @ 89121ad (main)</td></tr>
-  <tr><td>Method</td><td>12 parallel adversarial agents (Claude Opus), deduplicated, four-gate validation</td></tr>
+  <tr><td>Method</td><td>12 parallel adversarial agents (Claude Opus), deduplicated, four-gate validation, then executable PoCs run against Hardhat/EDR</td></tr>
   <tr><td>Confidence threshold</td><td>80 — at or above gets a fix; below gets description only</td></tr>
-  <tr><td>Findings</td><td>12 findings · 9 leads</td></tr>
+  <tr><td>Findings</td><td>12 findings · 9 leads · <b>9 PoC-confirmed, 3 inconclusive, 0 refuted</b><br>Confirmed severity: <b>2 High</b> (#4, #8) · <b>6 Medium</b> · <b>1 Low</b>. Unverified: 2 potential-High (#1, #7), 1 potential-Medium (#5).</td></tr>
 </table>
 
 <div class="note">
-<b>Evidence status — please read.</b> No finding in this report has an executable proof-of-concept. The evidence
-supporting each is static: traced call paths, EVM gas and storage-slot arithmetic, and quoted source. Finding&nbsp;4
-additionally had its shipped configuration values verified directly against
-<span class="m">scripts/deploy-utils.ts</span>. Confidence scores reflect how completely the attack path was traced,
-not execution against a live EVM. Findings should be reproduced in a test harness before remediation work is
-scheduled or a severity is assigned externally.
+<b>Evidence status — updated after PoC execution.</b> Each finding was subsequently exercised by an executable
+proof-of-concept in <span class="m">test/PocAuditFindings.ts</span> against a two-inbox Hardhat/EDR harness.
+<b>Nine of the twelve are confirmed</b> by an unambiguous on-chain signal (a custom error with exact arguments, a
+state transition, or a count). <b>Three could not be settled</b> by the harness and are marked INCONCLUSIVE — most
+importantly Finding&nbsp;1, which carried the highest pre-PoC confidence yet the test could not reproduce its claimed
+out-of-gas. The per-finding badge and the Summary column below record each verdict. Confidence numbers are the
+original pre-PoC scores, retained for provenance; the PoC verdict supersedes them where the two disagree.
+</div>
+
+<div class="note" style="border-left-color:#a02c1f;background:#fbf3f2;">
+<b style="color:#a02c1f;">Corrections after verification.</b> Two claims from the analysis phase were revised once
+checked against the code and a live EVM, and are recorded here rather than silently overwritten:
+<b>(1)</b> Finding&nbsp;1 was the highest-confidence item (90, ten agents) on gas arithmetic alone; the PoC could
+<i>not</i> reproduce its out-of-gas, so it is downgraded to <b>INCONCLUSIVE</b>, not confirmed.
+<b>(2)</b> Finding&nbsp;4's impact was first written with an assumed COTI price (~$0.05) and stated flatly as "every
+send reverts." The essential truth, verified against <code>deploy-utils.ts:132-134</code>, is that the project's own
+shipped price is <b>$0.01272522</b>, the revert is <b>price-ratio-dependent</b> (universal at realistic ratios,
+absent at a 1:1 ratio, hence invisible to CI), and the COTI leg is a manual peg — so it is a price-triggered
+liveness cliff, restated precisely in the finding below.
+</div>
+
+<div class="legend">
+<b>Severity</b> is impact&times;likelihood, assessed on the shipped code as-is, and is the column to act on.
+<b>Confidence</b> (retained from the agent pass) measures only how sure we are the bug is real — the PoC verdict now
+supersedes it. The two are independent: a bug can be high-confidence yet low-severity, or severe yet unproven.
+<b>High</b> = protocol-wide unavailability or a permanently stuck lane; <b>Medium</b> = operator economic drain,
+conditional liveness loss, or fee-quote incorrectness; <b>Low</b> = observability only.
+<b>*</b> = potential severity shown, but the PoC was inconclusive (see the finding). No finding in scope steals or
+mints user funds — value custody lives in the portal/pToken layer, out of these four files — so nothing here rates
+Critical; the ceiling is protocol availability.
 </div>
 
 <h2>Summary</h2>
 <table>
-  <tr><th class="n">#</th><th class="n">Conf.</th><th>Title</th><th>Location</th><th class="n">Agents</th></tr>
-  <tr><td class="n">1</td><td class="n">90</td><td>Post-call gas reserve smaller than the failure write it guarantees</td><td class="m">InboxMiner._runIncomingExecution</td><td class="n">10</td></tr>
-  <tr><td class="n">2</td><td class="n">90</td><td>Return-leg payload never checked against prepaid budget</td><td class="m">InboxBase._reply</td><td class="n">7</td></tr>
-  <tr><td class="n">3</td><td class="n">85</td><td>Callback fee floor priced from request size, not reply size</td><td class="m">InboxBase.sendTwoWayMessage</td><td class="n">1</td></tr>
-  <tr><td class="n">4</td><td class="n">85</td><td>Shipped fee template makes admission band unreachable</td><td class="m">InboxBase._createRequest</td><td class="n">2</td></tr>
-  <tr><td class="n">5</td><td class="n">80</td><td>Estimate suppresses LOG opcodes charged to the metered subcall</td><td class="m">InboxEstimateGas._estimateExecutionGasForMiner</td><td class="n">1</td></tr>
-  <tr><td class="n">6</td><td class="n">80</td><td>Expiry clock runs while pause disables the cure</td><td class="m">InboxMiner.retryFailedRequest</td><td class="n">1</td></tr>
-  <tr><td class="n">7</td><td class="n">80</td><td>Permissionless retry executes target with caller-chosen gas</td><td class="m">InboxMiner.retryFailedRequest</td><td class="n">1</td></tr>
-  <tr><td class="n">8</td><td class="n">75</td><td>Miner-reject hatch re-applies the cap that blocked the item</td><td class="m">InboxMiner._ingestMinerReject</td><td class="n">2</td></tr>
-  <tr><td class="n">9</td><td class="n">75</td><td>System-error return leg is fail-unsafe</td><td class="m">InboxBase._sendSystemErrorCallbackWithCode</td><td class="n">3</td></tr>
-  <tr><td class="n">10</td><td class="n">75</td><td>Ingest-storage fee returned to sender as executable gas</td><td class="m">InboxMiner._runIncomingExecution</td><td class="n">1</td></tr>
-  <tr><td class="n">11</td><td class="n">75</td><td>TTL terminalization half-writes the record, emits nothing on one-way</td><td class="m">InboxMiner.retryFailedRequest</td><td class="n">3</td></tr>
-  <tr><td class="n">12</td><td class="n">72</td><td>Ordinary execution failure produces no error return leg</td><td class="m">InboxMiner._runIncomingExecution</td><td class="n">1</td></tr>
+  <tr><th class="n">#</th><th class="n">Sev.</th><th class="n">Conf.</th><th class="n">PoC</th><th>Title</th><th>Location</th><th class="n">Agents</th></tr>
+  <tr><td class="n">1</td><td class="n"><span class="cvi">High *</span></td><td class="n">90</td><td class="n"><span class="vi">INCONCLUSIVE</span></td><td>Post-call gas reserve smaller than the failure write it guarantees</td><td class="m">InboxMiner._runIncomingExecution</td><td class="n">10</td></tr>
+  <tr><td class="n">2</td><td class="n"><span class="cvm">Med</span></td><td class="n">90</td><td class="n"><span class="vy">CONFIRMED</span></td><td>Return-leg payload never checked against prepaid budget</td><td class="m">InboxBase._reply</td><td class="n">7</td></tr>
+  <tr><td class="n">3</td><td class="n"><span class="cvm">Med</span></td><td class="n">85</td><td class="n"><span class="vy">CONFIRMED</span></td><td>Callback fee floor priced from request size, not reply size</td><td class="m">InboxBase.sendTwoWayMessage</td><td class="n">1</td></tr>
+  <tr><td class="n">4</td><td class="n"><span class="cvh">High</span></td><td class="n">85</td><td class="n"><span class="vy">CONFIRMED</span></td><td>Shipped fee template makes admission band unreachable</td><td class="m">InboxBase._createRequest</td><td class="n">2</td></tr>
+  <tr><td class="n">5</td><td class="n"><span class="cvi">Med *</span></td><td class="n">80</td><td class="n"><span class="vi">INCONCLUSIVE</span></td><td>Estimate suppresses LOG opcodes charged to the metered subcall</td><td class="m">InboxEstimateGas._estimateExecutionGasForMiner</td><td class="n">1</td></tr>
+  <tr><td class="n">6</td><td class="n"><span class="cvm">Med</span></td><td class="n">80</td><td class="n"><span class="vy">CONFIRMED</span></td><td>Expiry clock runs while pause disables the cure</td><td class="m">InboxMiner.retryFailedRequest</td><td class="n">1</td></tr>
+  <tr><td class="n">7</td><td class="n"><span class="cvi">High *</span></td><td class="n">80</td><td class="n"><span class="vi">INCONCLUSIVE</span></td><td>Permissionless retry executes target with caller-chosen gas</td><td class="m">InboxMiner.retryFailedRequest</td><td class="n">1</td></tr>
+  <tr><td class="n">8</td><td class="n"><span class="cvh">High</span></td><td class="n">75</td><td class="n"><span class="vy">CONFIRMED</span></td><td>Miner-reject hatch re-applies the cap that blocked the item</td><td class="m">InboxMiner._ingestMinerReject</td><td class="n">2</td></tr>
+  <tr><td class="n">9</td><td class="n"><span class="cvm">Med</span></td><td class="n">75</td><td class="n"><span class="vy">CONFIRMED</span></td><td>System-error return leg is fail-unsafe</td><td class="m">InboxBase._sendSystemErrorCallbackWithCode</td><td class="n">3</td></tr>
+  <tr><td class="n">10</td><td class="n"><span class="cvm">Med</span></td><td class="n">75</td><td class="n"><span class="vy">CONFIRMED</span></td><td>Ingest-storage fee returned to sender as executable gas</td><td class="m">InboxMiner._runIncomingExecution</td><td class="n">1</td></tr>
+  <tr><td class="n">11</td><td class="n"><span class="cvl">Low</span></td><td class="n">75</td><td class="n"><span class="vy">CONFIRMED</span></td><td>TTL terminalization half-writes the record, emits nothing on one-way</td><td class="m">InboxMiner.retryFailedRequest</td><td class="n">3</td></tr>
+  <tr><td class="n">12</td><td class="n"><span class="cvm">Med</span></td><td class="n">72</td><td class="n"><span class="vy">CONFIRMED</span></td><td>Ordinary execution failure produces no error return leg</td><td class="m">InboxMiner._runIncomingExecution</td><td class="n">1</td></tr>
 </table>
 
 <div class="note">
-<b>Fix these two together.</b> Findings 1 and 4 interact. Clamping the fee band (4) pins every COTI-bound
-<span class="m">targetFee</span> at exactly 25,000,000, which is precisely the condition that makes the gas-reserve
-shortfall (1) bind on every single ingest rather than occasionally.
+<b>Where to start.</b> Finding&nbsp;4 is PoC-confirmed and is a deploy blocker — with the shipped template every
+Sepolia/Fuji&nbsp;→&nbsp;COTI send reverts at realistic prices; fix it before any deployment. Findings 8/9 (a wedged
+lane whose only escape hatch also reverts) are the next most serious and both reproduce cleanly. Finding&nbsp;1 was
+expected to compound with 4, but the PoC could not confirm it and it should be re-tested with a gas-isolation harness
+before any work is scheduled on it.
 </div>
 
 <h2 class="pb">Findings</h2>
 
 <!-- 1 -->
 <div class="finding"><div class="fhead">
-<span class="conf c90">90</span><h3>1. Post-call gas reserve is smaller than the failure write it guarantees</h3>
+<span class="conf c90">90</span><span class="poc poc-i">PoC ? INCONCLUSIVE</span><h3><span class="sev sev-u">HIGH *</span>1. Post-call gas reserve is smaller than the failure write it guarantees</h3>
 <div class="loc">InboxMiner._runIncomingExecution · 10 of 12 agents · gas-reserve-undersized</div></div><div class="body">
-<div class="lbl">Description</div>
+<div class="correction">
+<b>PoC verdict: INCONCLUSIVE — not confirmed.</b> This was the highest-confidence finding (90, ten independent
+agents), but the executable PoC could not reproduce the claimed out-of-gas. In the run, a target that consumed its
+whole ~2.6M-gas stipend and reverted with a full 256-byte payload was still recorded successfully — the batch did
+not abort. The test, however, cannot be trusted to have isolated the write cost: total-tx gas for the 32-byte case
+(2,875,866) came out <i>higher</i> than the 256-byte case (2,816,876), which is backwards and shows the measurement
+was dominated by burn-loop noise, not the payload-size-dependent storage write. So the 243,100-gas arithmetic below
+is <b>neither confirmed nor refuted</b>. It requires a gas-isolation harness (assert <span class="m">gasleft()</span>
+immediately before the <span class="m">errors[rid]</span> write, or fund the batch with exactly
+<span class="m">targetFee + reserve + ingest</span>) before either direction is trusted. The original static analysis
+is retained below unchanged.
+</div>
+<div class="lbl">Description (original static analysis — unverified)</div>
 <p><code>POST_CALL_GAS_RESERVE = 200_000</code> is documented as ensuring "failure accounting can always commit", but
 <code>errors[rid] = Error{bytes32, uint64, bytes(256)}</code> is 11 cold zero→nonzero SSTOREs = <b>243,100 gas</b> before two
 LOGs — so a target that burns its allowance and reverts with a full 256-byte payload OOGs the whole
@@ -148,7 +200,7 @@ production.
 
 <!-- 2 -->
 <div class="finding"><div class="fhead">
-<span class="conf c90">90</span><h3>2. Return-leg payload size is never checked against the prepaid callback budget</h3>
+<span class="conf c90">90</span><span class="poc poc-y">PoC ✓ CONFIRMED</span><h3><span class="sev sev-m">MEDIUM</span>2. Return-leg payload size is never checked against the prepaid callback budget</h3>
 <div class="loc">InboxBase._reply · 7 of 12 agents · unpriced-return-leg</div></div><div class="body">
 <div class="lbl">Description</div>
 <p><code>_requireReplyMethodCallBounded</code> bounds the reply only by the admin constant <code>maxReplyMethodCallBytes</code> (default
@@ -184,7 +236,7 @@ when miners stop relaying, the bridge stops. Because the shortfall is structural
 
 <!-- 3 -->
 <div class="finding"><div class="fhead">
-<span class="conf c85">85</span><h3>3. Callback fee floor is priced from the request's size, not the reply's</h3>
+<span class="conf c85">85</span><span class="poc poc-y">PoC ✓ CONFIRMED</span><h3><span class="sev sev-m">MEDIUM</span>3. Callback fee floor is priced from the request's size, not the reply's</h3>
 <div class="loc">InboxBase.sendTwoWayMessage · wrong-size-input-to-fee-formula</div></div><div class="body">
 <div class="lbl">Description</div>
 <p>One <code>dataSize = abi.encode(methodCall).length</code> is computed from the outbound request and passed to
@@ -200,7 +252,7 @@ are computed differently.
 <div class="lbl impact">Impact if not fixed</div><div class="impactbox">
 Wallets and front-ends display the quoted fee before a user signs. When the request is large and the reply small,
 the on-chain requirement exceeds the quote and the transaction <b>reverts after the user has already committed and
-paid gas</b>. When the reply is large, the user under-pays and the shortfall lands on the miner. Either way the
+paid gas</b>. When the reply is large, the user under-pays and the shortfall lands on the miner. The PoC confirmed the mechanism but calibrated the magnitude: at a 1,284-byte reply the shortfall is ~1.3×, rising toward ~7× as the reply approaches the maximum the destination <span class="m">targetFee</span> can fund (not the 8–13× stated in some agent write-ups, which assumed the source paid the minimum for a maximal reply). Either way the
 displayed fee is unreliable, which is corrosive to user trust in a bridge where a failed transaction can look
 indistinguishable from lost funds.
 </div>
@@ -215,16 +267,25 @@ indistinguishable from lost funds.
 
 <!-- 4 -->
 <div class="finding"><div class="fhead">
-<span class="conf c85">85</span><h3>4. Shipped fee template makes the admission band one gas unit wide and unreachable</h3>
+<span class="conf c85">85</span><span class="poc poc-y">PoC ✓ CONFIRMED</span><h3><span class="sev sev-h">HIGH</span>4. Shipped fee template makes the admission band one gas unit wide and unreachable</h3>
 <div class="loc">InboxBase._createRequest · 2 agents + independently verified · degenerate-fee-band</div></div><div class="body">
 <div class="lbl">Description</div>
-<p><code>FeeManager.expectedMinFee</code> returns <code>constantFee</code> verbatim in constant-fee mode, so the floor and <code>_createRequest</code>'s
-<code>maxExecutionGas</code> ceiling are <b>both 25,000,000</b> in the shipped <code>FEE_CONFIG_COTI_SIDE</code> — a band of width 1 — while
-reachable values are quantized at <code>localPrice/remotePrice × gasPriceMul/Div</code> (≈60,000 at realistic ETH/COTI prices).
-25,000,000 is not a multiple of 60,000, so no <code>msg.value</code> satisfies both bounds. Config confirmed directly at
-<code>deploy-utils.ts:392-403</code> and its installation as <code>remote</code> at line 450. CI misses it because every test sets both
-prices to <code>1e18</code>, collapsing the step to 1. Note the file's own comment at line 390 reads "floor is lower",
-suggesting the author believed headroom existed.</p>
+<p><code>FeeManager.expectedMinFee</code> returns <code>constantFee</code> verbatim in constant-fee mode
+(<code>FeeManager.sol:219</code>), so the floor (<code>FeeManager.sol:187</code>) and <code>_createRequest</code>'s
+<code>maxExecutionGas</code> ceiling (<code>InboxBase.sol:497</code>) are <b>both 25,000,000</b> in the shipped
+<code>FEE_CONFIG_COTI_SIDE</code> — an admissible band exactly one gas unit wide. But <code>targetFee</code> is not set
+directly: it is derived from <code>msg.value</code> as <code>floor(k · localPrice/remotePrice)</code>
+(<code>FeeManager.sol:180-181</code>), so reachable values are quantized in steps of <code>localPrice/remotePrice</code>.
+Whether the single legal point is reachable therefore depends on the price ratio. Using the project's <b>own shipped
+testnet prices</b> — <code>TESTNET_ETH_USD = 2103.41</code>, <code>TESTNET_COTI_USD = 0.01272522</code>
+(<code>deploy-utils.ts:132-134</code>) — the ratio is ≈165,314, so consecutive reachable values are
+<code>k=151 → 24,962,414</code> (&lt; floor → <code>TargetFeeTooLow</code>) and
+<code>k=152 → 25,127,728</code> (&gt; ceiling → <code>FeeGasTooHigh</code>): 25,000,000 falls in the gap and no
+<code>msg.value</code> satisfies both bounds. Config confirmed at <code>deploy-utils.ts:392-403</code>, installed as
+<code>remote</code> at line 450; the file's own comment at line 390 reads "floor is lower", suggesting the author
+believed headroom existed. CI misses it because every fee test but one sets both legs to <code>1e18</code> (ratio 1,
+step 1, band trivially hittable), and the one test that uses the real prices (<code>InboxFeeCalculation.ts</code>)
+never pairs them with the degenerate <code>constantFee == maxExecutionGas</code> template.</p>
 <div class="lbl plain">In plain English</div><div class="plainbox">
 A shop where the minimum price is exactly £25 and the maximum price is also exactly £25 — but the till only accepts
 one denomination of coin, worth £1.50. There is no number of coins that makes exactly £25. Pay one coin less and
@@ -232,12 +293,15 @@ you're under the minimum; one coin more and you're over the maximum. Nobody can 
 shop's own test till was set up with 1p coins, so it always worked in rehearsal.
 </div>
 <div class="lbl impact">Impact if not fixed</div><div class="impactbox">
-Operationally the most severe finding in this report. If the shipped configuration is deployed as-is against
-realistic token prices, <b>every single message from Sepolia or Avalanche to COTI reverts</b> — not a degradation
-but a total outage of the entire bridge, present from the moment of deployment and affecting every user
-simultaneously. No deposit, withdrawal or transfer can be initiated. The failure is silent in testing and would
-first surface on mainnet. It is also fragile in the other direction: even if a particular price ratio happened to
-divide evenly, any subsequent price movement would break it again.
+Operationally the most severe finding in this report. Under the shipped config <b>at the project's own testnet
+prices (ETH $2103.41 / COTI $0.0127, ratio ≈165,000), every Sepolia/Fuji→COTI message reverts</b> — a total,
+deploy-time outage of the bridge affecting every user at once, silent in testing (all-1e18 ratios), surfacing only
+on a realistically-priced network. It is <b>not</b> literally every parameter set: the band is reachable when the
+two legs are priced equally (ratio 1) or at a coincidental ratio where 25,000,000 is an exact multiple of
+<code>localPrice/remotePrice</code>. That makes it a <b>price-triggered liveness cliff</b> — because the COTI leg is
+a manual admin peg with no Chainlink feed, a peg update can flip the bridge between fully working and fully broken
+with no code change, which is arguably worse than a permanent failure because it can pass a deploy smoke-test and
+break later. Either way it must be fixed before deployment.
 </div>
 <div class="lbl fix">Fix — Option A (clamp instead of revert)</div>
 <pre><span class="r">- if (targetFeeGas &gt; remoteMax.maxExecutionGas) revert FeeGasTooHigh(targetFeeGas, remoteMax.maxExecutionGas);</span>
@@ -251,7 +315,7 @@ divide evenly, any subsequent price movement would break it again.
 
 <!-- 5 -->
 <div class="finding"><div class="fhead">
-<span class="conf c80">80</span><h3>5. Estimate suppresses LOG opcodes that are charged to the subcall it is metering</h3>
+<span class="conf c80">80</span><span class="poc poc-i">PoC ? INCONCLUSIVE</span><h3><span class="sev sev-u">MEDIUM *</span>5. Estimate suppresses LOG opcodes that are charged to the subcall it is metering</h3>
 <div class="loc">InboxEstimateGas._estimateExecutionGasForMiner · estimate-underreports-gas</div></div><div class="body">
 <div class="lbl">Description</div>
 <p><code>emit ResponseReceived</code> and <code>emit MessageSent</code> (plus the keccak in <code>_methodCallLogData</code>) execute <i>inside</i> the metered
@@ -279,7 +343,7 @@ honest traffic produces the under-estimate, and the under-estimate produces the 
 
 <!-- 6 -->
 <div class="finding"><div class="fhead">
-<span class="conf c80">80</span><h3>6. Expiry clock runs while the pause switch disables the cure</h3>
+<span class="conf c80">80</span><span class="poc poc-y">PoC ✓ CONFIRMED</span><h3><span class="sev sev-m">MEDIUM</span>6. Expiry clock runs while the pause switch disables the cure</h3>
 <div class="loc">InboxMiner.retryFailedRequest · ttl-clock-runs-while-paused</div></div><div class="body">
 <div class="lbl">Description</div>
 <p><code>messageProcessingPaused</code> reverts <code>retryFailedRequest</code> at its first line while <code>block.timestamp</code> keeps advancing
@@ -313,7 +377,7 @@ the operator's own incident response rather than to the original incident.
 
 <!-- 7 -->
 <div class="finding"><div class="fhead">
-<span class="conf c80">80</span><h3>7. Permissionless retry executes the target with caller-chosen gas</h3>
+<span class="conf c80">80</span><span class="poc poc-i">PoC ? INCONCLUSIVE</span><h3><span class="sev sev-u">HIGH *</span>7. Permissionless retry executes the target with caller-chosen gas</h3>
 <div class="loc">InboxMiner.retryFailedRequest · caller-controlled-gas-steering</div></div><div class="body">
 <div class="lbl">Description</div>
 <p>The retry branch sets <code>gasForCall = gasleft()</code> and deliberately ignores the prepaid budget, so an attacker choosing
@@ -343,7 +407,7 @@ amount and cannot be retried".
 
 <!-- 8 -->
 <div class="finding"><div class="fhead">
-<span class="conf c75">75</span><h3>8. Miner-reject escape hatch re-applies the cap that made the item unrejectable</h3>
+<span class="conf c75">75</span><span class="poc poc-y">PoC ✓ CONFIRMED</span><h3><span class="sev sev-h">HIGH</span>8. Miner-reject escape hatch re-applies the cap that made the item unrejectable</h3>
 <div class="loc">InboxMiner._ingestMinerReject · 2 agents · escape-hatch-revert · below threshold, description only</div></div><div class="body">
 <div class="lbl">Description</div>
 <p>The reject branch skips the three admission caps so it can always clear a stuck nonce, but
@@ -367,7 +431,7 @@ not exotic ones.
 
 <!-- 9 -->
 <div class="finding"><div class="fhead">
-<span class="conf c75">75</span><h3>9. System-error return leg is fail-unsafe</h3>
+<span class="conf c75">75</span><span class="poc poc-y">PoC ✓ CONFIRMED</span><h3><span class="sev sev-m">MEDIUM</span>9. System-error return leg is fail-unsafe</h3>
 <div class="loc">InboxBase._sendSystemErrorCallbackWithCode · 3 agents · below threshold, description only</div></div><div class="body">
 <div class="lbl">Description</div>
 <p>The helper already handles <code>callerFee == 0</code> by emitting locally and returning, but has no equivalent guard for an
@@ -388,7 +452,7 @@ the fail-safe pattern was understood — it was simply not extended to the other
 
 <!-- 10 -->
 <div class="finding"><div class="fhead">
-<span class="conf c75">75</span><h3>10. Ingest-storage fee is returned to the sender as executable gas</h3>
+<span class="conf c75">75</span><span class="poc poc-y">PoC ✓ CONFIRMED</span><h3><span class="sev sev-m">MEDIUM</span>10. Ingest-storage fee is returned to the sender as executable gas</h3>
 <div class="loc">InboxMiner._runIncomingExecution · fee-accounting-double-spend · below threshold, description only</div></div><div class="body">
 <div class="lbl">Description</div>
 <p><code>expectedMinFee</code> charges <code>dataSize * gasPerByte</code> explicitly to price destination ingest storage
@@ -411,7 +475,7 @@ without anyone attacking the system, simply as a function of normal usage volume
 
 <!-- 11 -->
 <div class="finding"><div class="fhead">
-<span class="conf c75">75</span><h3>11. TTL terminalization writes half the record and emits nothing on one-way</h3>
+<span class="conf c75">75</span><span class="poc poc-y">PoC ✓ CONFIRMED</span><h3><span class="sev sev-l">LOW</span>11. TTL terminalization writes half the record and emits nothing on one-way</h3>
 <div class="loc">InboxMiner.retryFailedRequest · 3 agents · below threshold, description only</div></div><div class="body">
 <div class="lbl">Description</div>
 <p>The TTL branch writes only <code>errors[requestId].errorCode = ERROR_CODE_EXPIRED</code>, leaving <code>errorMessage</code> holding the
@@ -434,7 +498,7 @@ is entirely to observability — which is why it sits below the fix threshold.
 
 <!-- 12 -->
 <div class="finding"><div class="fhead">
-<span class="conf c72">72</span><h3>12. Ordinary execution failure produces no error return leg</h3>
+<span class="conf c72">72</span><span class="poc poc-y">PoC ✓ CONFIRMED</span><h3><span class="sev sev-m">MEDIUM</span>12. Ordinary execution failure produces no error return leg</h3>
 <div class="loc">InboxMiner._runIncomingExecution · below threshold, description only</div></div><div class="body">
 <div class="lbl">Description</div>
 <p>The <code>if (!success)</code> branch records the error but never calls <code>_sendSystemErrorCallback</code>, even though the sender was
@@ -477,10 +541,10 @@ tree. <code>FeeManager.setMaxReplyMethodCallBytes</code> rejects only zero, with
 
 <div class="disclaimer">
 ⚠️ This review was performed by an AI assistant. AI analysis can never verify the complete absence of
-vulnerabilities and no guarantee of security is given. No finding in this report has an executable proof-of-concept;
-evidence is static analysis, gas arithmetic and traced call paths. Team security reviews, bug bounty programs, and
-on-chain monitoring are strongly recommended. For a consultation regarding your projects' security, visit
-https://www.pashov.com
+vulnerabilities and no guarantee of security is given. Nine of the twelve findings were reproduced by executable proof-of-concept against a Hardhat/EDR harness; three
+remain inconclusive and are flagged as such. A passing PoC confirms a mechanism, not its full production impact.
+Team security reviews, bug bounty programs, and on-chain monitoring are strongly recommended. For a consultation
+regarding your projects' security, visit https://www.pashov.com
 </div>
 
 </body></html>
