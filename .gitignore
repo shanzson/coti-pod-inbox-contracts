@@ -142,3 +142,9 @@ artifacts/
 cache/
 types/
 node_modules/
+
+# Foundry (fee-subsystem PoC in test/foundry)
+foundry-out/
+foundry-cache/
+# Vendored Foundry deps (install locally via `forge install` / the clone in test/foundry/README.md)
+lib/

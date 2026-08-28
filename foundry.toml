@@ -1,0 +1,27 @@
+# Foundry config — scoped to the fee-subsystem PoC in test/foundry only.
+#
+# The production suite runs under Hardhat (see package.json / hardhat.config.ts).
+# This config exists so the FeeManager direct-call PoC can run under `forge test`
+# WITHOUT pulling the whole `contracts/` tree (Inbox.sol depends on
+# @coti-io/coti-contracts, a sibling checkout that is not part of this package).
+#
+# `src`/`test` both point at test/foundry so forge compiles only the PoC plus the
+# production fee contracts it imports (FeeManager, FeeManagerStubBase, PriceOracle
+# and their closure) — never Inbox.sol and the MPC codec.
+[profile.default]
+src = "test/foundry"
+test = "test/foundry"
+out = "foundry-out"
+cache_path = "foundry-cache"
+libs = ["node_modules", "lib"]
+solc = "0.8.28"
+evm_version = "shanghai"
+optimizer = true
+optimizer_runs = 200
+# FeeManagerStubBase hits "stack too deep" without the IR pipeline (same reason
+# hardhat.config.ts sets viaIR: true for the production build).
+via_ir = true
+remappings = [
+    "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+    "forge-std/=lib/forge-std/src/",
+]
