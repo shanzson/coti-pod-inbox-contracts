@@ -12,6 +12,8 @@
 
 **Method:** two independent AI review agents were run in a self-paced loop until each converged (a full pass produced no new verified issue). One agent hunted **direct** Critical/High/Medium defects; the other hunted **attack chains** — sequences where individually small weaknesses compose into a bigger one. Every finding below was traced from an external entry point and verified line-by-line against the current code; production-config claims were re-verified against the deploy scripts. The direct agent ran 4 passes + a convergence sweep; the chain agent ran 5 passes. Their results cross-corroborate.
 
+Every finding was then **validated with executable Proof-of-Concept tests** against the *real* contracts: two further agents — a PoC author and an independent, adversarial verifier — wrote and audited 11 passing PoCs (plus one adversarial cross-check), run on an isolated Hardhat harness that compiles the real `contracts/fee` stack. See the **Empirical PoC validation** section for the harness, the run command, and the per-finding verdicts. That pass confirmed every mechanism and downgraded exactly one severity: **C-2, High → Medium** (the shipped `getOracleHealth()` surface is not fooled, so the "operator deception" claim was overstated).
+
 **Style note:** written in plain language with a one-line real-world analogy per finding, in the spirit of a Zokyo report. Each finding gives a concrete worked example with numbers.
 
 ---
@@ -21,9 +23,9 @@
 The fee path is deliberately **fail-open**: oracle prices only *size the cross-chain gas budget*; they never move user principal directly, and the sole on-chain guard is "revert if a leg price is exactly zero" (`OraclePriceZero`). Calibrated honestly against that design:
 
 - **No Critical** and **no attacker can inject or forge a price** — `refreshCache()` only ever pulls the honest live/manual value, and no permissionless path can zero the cache.
-- **One High (qualified)** exists on the shipped configuration: a *standing, attacker-harvestable* cross-chain gas subsidy caused by the COTI price leg being a hand-maintained constant with **no maximum-age check anywhere on the fee path** (Finding 1 / Chain 5). It is "qualified" because it is fee-only, capped per message, and admin-correctable — impact is High, likelihood is config-and-monitoring dependent.
-- **Three Mediums** in the "sustained wrong fee / operator footgun / integration hardening" class.
-- **Five attack chains**, of which two reach High on the shipped config.
+- **One High (qualified)** exists on the shipped configuration: a *standing, attacker-harvestable* cross-chain gas subsidy caused by the COTI price leg being a hand-maintained constant with **no maximum-age check anywhere on the fee path** (Finding 1 / Chain 5). It is "qualified" because it is fee-only, capped per message, and admin-correctable — impact is High, likelihood is config-and-monitoring dependent. **PoC-validated (scoped):** the mispricing is proven executably (a stale peg yields a `targetGasRemoteUnits` of 3,000,000 vs 2,000,000 at the true price); the final "miner fronts that gas" step is source-verified in `InboxMiner.sol:353-416` but not compiled.
+- **Four Mediums** in the "sustained wrong fee / operator footgun / integration hardening" class (F-2, F-3, plus C-2 after its downgrade, C-3, C-4).
+- **Five attack chains**, of which **one** — Chain 5, the shipped realization of F-1 — reaches (qualified) High. *(Chain 2 was rated High in the first pass but **downgraded to Medium after PoC verification**: the shipped `getOracleHealth()` surface exposes the dead leg, so the "green dashboard" deception is only partial.)*
 
 The single most valuable fix, which breaks a link present in almost every finding below, is a **maximum-age (staleness) check on the fee-path price read**. Today the code *tracks* price ages (`priceUpdatedAt`, `lastFetchTimestamp`) but **never enforces them on-chain** — the freshness metadata is decorative from the contract's point of view.
 
@@ -35,7 +37,7 @@ The single most valuable fix, which breaks a link present in almost every findin
 | **F-2** | Two manual-price setters with different consumers; `setTokenPriceUSD` never reaches the fee path | Medium |
 | **F-3** | Chainlink adapter: no circuit-breaker bound, `maxStaleness==0` disables all time checks, deprecated `answeredInRound` | Medium |
 | **C-1** | Permissionless refresh + gate-advance + no fee-path staleness → stale ratio pinned for a whole interval | Medium (shipped) / High (one config change) |
-| **C-2** | Zeroed leg + no self-heal + manual-price mirage → sends brick while dashboard reads green | **High** (shipped, COTI inbox) |
+| **C-2** | Zeroed leg + no self-heal → admin-triggered, self-unhealable liveness brick (fee path reverts `OraclePriceZero`) | Medium (shipped, COTI inbox — *downgraded from High after PoC*) |
 | **C-3** | Portal manual peg silently contaminates the inbox fee basis on the next refresh | Medium |
 | **C-4** | Dead/stale feed value used with no on-chain guard (`maxStaleness==0`, dying feed, or L2 with no sequencer feed) | Medium (→ High on L2) |
 | I-1…I-4 | Informational (exotic decimals, Band USDC peg, Band bulk-vs-single, read-then-refresh) | Low / Info |
@@ -107,6 +109,7 @@ The important structural fact: **the fee read checks only that each price is non
   3. For the COTI leg specifically: wire a real feed/TWAP, **or** enforce an on-chain "manual price max age" plus a max-deviation bound so a forgotten manual value cannot price fees indefinitely. (Note: the max-age check in (1) is *necessary but not sufficient* for the manual-peg case, because a manual peg has no genuine market `updatedAt` — a deviation bound or a feed is also needed.)
 
 - **Confidence:** High that the mechanism exists (no fee-path age check, static manual COTI leg, ratio scaling — all verified in code and deploy scripts). Medium that the profitable direction is realized in practice (depends on COTI drifting above its stored peg and monitoring being absent).
+- **PoC:** VALIDATED (scoped) — `test/oracle-poc/direct.ts` proves a 100-day-old price is served with no revert and that the same fee yields `targetGasRemoteUnits` = 3,000,000 (stale) vs 2,000,000 (true), plus the reverse `TargetFeeTooLow`. The miner-fronting step is source-verified at `InboxMiner.sol:353-416`, not compiled in the harness.
 
 ---
 
@@ -141,6 +144,7 @@ The important structural fact: **the fee read checks only that each price is non
 - **Recommendation:** Make the two agree. Either (a) have `getPricesUSD()` use the same manual fallback as `getCachedPrice()`, or (b) have `setTokenPriceUSD` on a configured inbox leg also write `cachedPriceUSD` (and emit a clear event), or (c) revert if `setTokenPriceUSD` is called with a `localToken`/`remoteToken` address unless the caller also updates the cache. At minimum, rename/document so it cannot be mistaken for the inbox-leg setter.
 
 - **Confidence:** High on the mechanism (verified `getPricesUSD` is not overridden and both fee consumers call it); Medium on severity (busy lanes self-heal; setup mistakes are loud because `setPriceOracle` re-validates).
+- **PoC:** VALIDATED — `test/oracle-poc/direct.ts` shows `setTokenPriceUSD(COTI, 0.02)` moves `manualPrices`/`getLivePrice` while `getPricesUSD` stays `0.0127` and the FeeManager budget is unchanged on a no-refresh lane.
 
 ---
 
@@ -166,6 +170,7 @@ The important structural fact: **the fee read checks only that each price is non
 - **Recommendation:** Read and enforce `minAnswer`/`maxAnswer` (reject answers at/through the bound); add an L2 sequencer-uptime gate (no-op when the sequencer feed is unset) before any L2 deployment; reject `setMaxStaleness(0)` (or floor it); and drop reliance on `answeredInRound` in favor of `answer > 0` + `updatedAt` freshness.
 
 - **Confidence:** High that the checks are absent; Medium on severity given the shipped chains and non-zero configured `maxStaleness`.
+- **PoC:** VALIDATED — `test/oracle-poc/direct.ts` proves (a) the adapter accepts a `$10` clamp and a 1-wei answer (only bound is `answer > 0`), (b) `maxStaleness==0` accepts both a 2-day-old and a future-dated answer the guarded adapter rejects, (c) `answeredInRound < roundId` is rejected while `>=` is accepted.
 
 ---
 
@@ -206,17 +211,19 @@ Each chain is composed of individually low/medium (or by-design) behaviors that 
 - **Severity:** High (shipped). **Confidence:** Medium (depends on COTI drifting above its stored peg and monitoring being absent).
 - **Fix:** F-1's recommendations — a fee-path max-age check is necessary but **not sufficient** here (manual pegs have no real `updatedAt`); add a live COTI feed or an on-chain max-deviation bound.
 
-### [HIGH — shipped, COTI inbox] Chain 2 — Zeroed leg + no self-heal + manual-price mirage → sends brick while the dashboard reads green
+### [MEDIUM — shipped, COTI inbox] Chain 2 — Zeroed leg + no self-heal → admin-triggered, self-unhealable liveness brick *(downgraded from High after PoC)*
+
+> **PoC correction:** this chain was rated **High** in the first pass on the strength of an "active operator deception" leg (dashboards read green while the inbox is dead). The adversarial PoC (`test/oracle-poc/verify_c2_health.ts`) showed that the contract's *intended* ops surface, `getOracleHealth()`, returns `remoteCached == 0` for the dead leg — so a monitor on the right surface is **not** fooled; only `getCachedPrice()` is. With the deception leg only partial, the honestly-supported severity is **Medium**: an admin-triggered, self-unhealable liveness brick.
 
 - **Links:** **BB6** (a zeroed leg) + **BB1** (`OraclePriceZero` reverts every send) + **BB2 ordering** (the self-heal `refreshCache` runs *after* the fee check that reverts, so it never executes) + **BB5** (`setTokenPriceUSD` doesn't reach the fee path, but `getCachedPrice` reads green via the manual fallback).
-- **How they compose:** A leg goes to 0 (token rotation, peg clear, or a feed returning 0 with an empty prior cache). Sends now revert. The system is *designed* to self-heal by refreshing on every send — but the refresh sits after the fee check, so a bricked inbox can never refresh itself out of the hole. Ops reach for the natural-looking `setTokenPriceUSD(leg, price)`, which writes a different mapping than the fee path reads, so sends keep reverting — yet `getCachedPrice(leg)` now returns that manual value, so **the dashboard says healthy while the inbox is dead.**
+- **How they compose:** A leg goes to 0 (token rotation, peg clear, or a feed returning 0 with an empty prior cache). Sends now revert. The system is *designed* to self-heal by refreshing on every send — but the refresh sits after the fee check, so a bricked inbox can never refresh itself out of the hole. Ops reach for the natural-looking `setTokenPriceUSD(leg, price)`, which writes a different mapping than the fee path reads, so sends keep reverting — yet `getCachedPrice(leg)` now returns that manual value. **A monitor that reads `getCachedPrice` is misled; a monitor that reads the purpose-built `getOracleHealth()` is not** (it still reports `remoteCached == 0`). So the deception is real but partial, and the durable harm is the outage itself.
 - **Worked example (shipped COTI inbox, both legs manual):**
   - `t0`: `clearTokenPriceUSD(ETH)` (or `setInboxTokens`) → `cachedPriceUSD[ETH] = 0`; gate still shut for ~290 s.
   - `t0+1s`: any COTI→EVM send → `getPricesUSD = (0, cotiPeg)` → **revert `OraclePriceZero`**; the `try refreshCache()` line is never reached. All sends down.
-  - `t0+30s`: ops call `setTokenPriceUSD(ETH, 2500e18)`. `getCachedPrice(ETH)` now returns `2500e18` (manual fallback) → **dashboard green**.
+  - `t0+30s`: ops call `setTokenPriceUSD(ETH, 2500e18)`. `getCachedPrice(ETH)` now returns `2500e18` (manual fallback) → a `getCachedPrice`-based dashboard reads **green** — but `getOracleHealth()` still reports `remoteCached == 0` (with `remoteManual == true`), so the *intended* health surface correctly shows the fee leg is dead.
   - `t0+31s`: send → `getPricesUSD` still `(0, cotiPeg)` → **still reverts.** Real fix: `setRemoteTokenPriceUSD` (writes the cache immediately) or a direct `refreshCache()` after the gate opens — but on a feed-less COTI leg even `refreshCache` only works because `_livePrice` returns the *manual* value.
-- **Layman analogy:** The fuel gauge reads full because someone filled a spare can in the trunk — but the engine drinks from the tank, which is still empty, so the car keeps stalling while the dashboard insists everything's fine.
-- **Severity:** High (liveness outage + active operator deception). Recoverable → not Critical. **Confidence:** High (pure control-flow facts). Trigger is owner reconfiguration (unlucky-ops), but the self-unhealable and deceptive-dashboard properties are pure code behavior.
+- **Layman analogy:** The car stalls because the tank is empty; a spare can in the trunk makes one gauge read full, but the proper dashboard warning light still shows empty — the real problem is that the car won't start until someone fills the actual tank.
+- **Severity:** Medium (admin-triggered, self-unhealable liveness outage; only *partial* ops-deception, via `getCachedPrice`). Recoverable → not High/Critical. **Confidence:** High. **PoC:** VALIDATED (scoped) — `test/oracle-poc/chains.ts` proves the `OraclePriceZero` revert and the green `getCachedPrice`; `test/oracle-poc/verify_c2_health.ts` proves `getOracleHealth()` is *not* fooled; the "refresh runs after the reverting fee check" link is source-verified at `InboxBase.sol:220-225` (not compiled in the fee-only harness).
 - **Fix:** Make the fee read and the ops view agree (one source of truth), or have `setInboxTokens` reject a config that leaves a leg at 0 unless a price is supplied in the same tx and reset `lastFetchTimestamp = 0`.
 
 ### [MEDIUM] Chain 1 — Permissionless refresh + gate-advance + no fee-path staleness → a stale ratio pinned for a whole interval
@@ -225,6 +232,7 @@ Each chain is composed of individually low/medium (or by-design) behaviors that 
 - **How they compose:** The cache is a snapshot. Whoever calls `refreshCache` first after the gate opens *chooses the snapshot and freezes it for 300 s* — nobody can correct it in that window, and the fee code never asks "is this old?". On a lane with a live feed leg, an attacker waits for the feed to print a favorable value, front-runs the honest keeper to pin it, and fires sends for the next 5 minutes.
 - **Shipped-config severity — Medium (honest re-rating):** the lanes that *have* a live feed (Sepolia/mainnet/Avax, live on the **local** leg) pair it with the **constant** 25M COTI remote band, so pinning the local price cannot over-fund a single-point band — it only under-collects local fee or pushes the degenerate band out of reach (a DoS overlapping the known PoC-04). Chain 1 becomes **High only on a one-config-change lane** (a variable remote band + a live leg, reachable via the supported per-chain `deployConfig.json` fee override, a non-COTI remote leg, or simply fixing the degenerate band). There is also an **unlucky-ops twin:** even an honest keeper leaves every send between the 5-minute refreshes mispriced by real drift.
 - **Fix:** the fee-path max-age check (breaks BB1); set `lastFetchTimestamp` only after a successful pull (breaks BB3). **Confidence:** Medium (mechanism verified; profit direction is config-dependent).
+- **PoC:** VALIDATED (scoped) — `test/oracle-poc/chains.ts` shows the first refresh pins ETH at $2000 and the gate blocks a second refresh for the full 300 s even though the live feed prints $3000; the shipped-config High variant is reasoned (needs a variable remote band + live leg).
 
 ### [MEDIUM] Chain 3 — Portal manual peg silently contaminates the inbox fee basis on the next refresh
 
@@ -233,6 +241,7 @@ Each chain is composed of individually low/medium (or by-design) behaviors that 
 - **Worked example:** inbox COTI peg `0.0127`; admin sets `setTokenPriceUSD(COTI, 0.02e18)` for a portal quote (inbox fees unchanged, so it looks isolated); later an attacker calls `refreshCache()` → `_refreshLeg(COTI)` copies `0.02e18` into `cachedPriceUSD` → **inbox remote price jumps +57% in one block**, timed by the attacker.
 - **Layman analogy:** You change the price on the shop's sidewalk chalkboard (the portal), not knowing a night-shift robot copies it onto the cash register (the inbox) at a moment a stranger gets to choose.
 - **Severity:** Medium. **Confidence:** High (coupling) / Medium (impact). **Fix:** don't let refresh source from `manualPrices` (refresh only from the configured feed), keeping `manualPrices` portal-only.
+- **PoC:** VALIDATED — `test/oracle-poc/chains.ts` shows one permissionless `refreshCache()` promotes the portal peg into the fee cache (budget 3,175,000 → 5,000,000, +57%). *Verifier caveat:* this is the flip-side of F-2's coupling, and promotion-on-refresh is the intended path for feed-less legs — the attacker controls only the block/timing, not the admin-chosen value.
 
 ### [MEDIUM → HIGH on L2] Chain 4 — Dead/stale feed value used with no on-chain guard
 
@@ -241,10 +250,42 @@ Each chain is composed of individually low/medium (or by-design) behaviors that 
 - **Worked example (`maxStaleness == 0`):** ETH aggregator's last good round `$2103`; operator set `maxStaleness = 0`; two days later the aggregator is deprecated and still returns `$2103` with a 2-day-old timestamp; the age check is off, so every send prices ETH at `$2103` while it really trades `$1500` — a persistent ~40% mispricing invisible to the fee path.
 - **Layman analogy:** The wall clock stopped at noon; because nobody is allowed to ask "is this clock still ticking?", every appointment is scheduled against a time that stopped being true days ago.
 - **Severity:** Medium (rises to High on an L2 with no sequencer check, or with `maxStaleness==0`). Shipped chains are L1s, which lowers the sequencer angle today. **Fix:** reject `setMaxStaleness(0)`; add the fee-path max-age check; add a sequencer-uptime gate for L2 targets.
+- **PoC:** VALIDATED — `test/oracle-poc/chains.ts` shows that with `maxStaleness==0` and a frozen feed, repeated `refreshCache()` calls re-adopt the dead value and `priceUpdatedAt` advances to ~now each time. *Verifier note:* `priceUpdatedAt` is the *last cache-write* time (per its NatSpec), not feed freshness — the substantive point is that nothing on-chain reveals the dead feed when `maxStaleness==0`. Requires that admin opt-out (shipped scripts use 86400/3600 s).
 
 ### Cross-cutting note — the degenerate COTI fee band colors Chains 1 & 5
 
 `FEE_CONFIG_COTI_SIDE` ships with `constantFee == maxExecutionGas == 25,000,000` (`deploy-utils.ts:392-403`). With a constant remote template, a send must hit `targetGasRemoteUnits` **exactly** 25M (floor `expectedMinFee == 25M` meets ceiling `FeeGasTooHigh > 25M`), while the reachable values jump in steps of ~165,000, stepping over the single legal point — so shipped **source→COTI** sends are largely unsendable by construction (the known PoC-04 "degenerate fee band"). This is out of pure oracle scope, but it matters here: it *mutes* Chain 1's over-fund direction into under-collection/DoS on the source lanes, and whichever way operators fix the band into a real `[min, max]` range, Chain 1's clean miner-subsidy form switches on immediately.
+
+---
+
+## Empirical PoC validation (executable proofs)
+
+Every finding above was reproduced with an executable Proof-of-Concept and then **independently audited by a separate adversarial verifier**. This section records the harness, how to run it, and the verdicts.
+
+**Harness (isolated, real contracts).** `hardhat.config.poc.ts` compiles *only* `contracts/fee` + the fee mocks, so the real oracle stack (`PoDPriceOracle`, `PriceOracle`, `FeeManager`, `ChainlinkLiveOracle` → `ChainlinkFeedLib`) runs on Hardhat's in-process EVM without building the heavy MPC/Inbox stack. `FeeManager` is deployed standalone and driven directly — its fee state lives at a fixed ERC-7201 slot, so the math is identical to the delegatecalled Inbox. The reference gas price is pinned with `setGasPriceBounds(0, G, G)` (a legitimate isolation of the real `_referenceGasPrice` clamp), and the `payable` validators' return values are read via `eth_call`/`simulateContract`. The only test double is `MockChainlinkAggregator`, which fakes the *upstream Chainlink feed* only — a genuine external dependency.
+
+**Run all PoCs:**
+```
+npx hardhat --config hardhat.config.poc.ts test test/oracle-poc/direct.ts test/oracle-poc/chains.ts test/oracle-poc/verify_c2_health.ts
+```
+Result: **12/12 pass.** No assertion was weakened; every vulnerable output (budget, revert, retained cache, advanced timestamp) is *computed by the real contract*, not asserted from a test-set value.
+
+**Verdicts (from the independent verifier):**
+
+| Finding | Verdict | Proven executably | Reasoned-not-executed (source-verified) |
+|---|---|---|---|
+| F-1 / Chain 5 | VALIDATED (scoped) | stale peg served after 100 days with no revert; `targetGasRemoteUnits` = 3,000,000 (stale) vs 2,000,000 (true) from the same fee = 1.5× over-fund; reverse reverts real `TargetFeeTooLow` | miner fronts gas up to `targetFee` (`InboxMiner.sol:353-416`); the dollar-drain is an economic argument (medium likelihood) |
+| F-2 | VALIDATED | `setTokenPriceUSD` moves `manualPrices`/`getLivePrice` but leaves `getPricesUSD` unchanged; FeeManager budget identical on a no-refresh lane | — |
+| F-3(a) | VALIDATED | adapter accepts a clamped `$10` and a 1-wei answer; the only bound in code is `answer > 0` | proves *absence of a bound* (mock has no real `minAnswer` because the adapter never reads one) |
+| F-3(b) | VALIDATED | `maxStaleness==0` accepts a 2-day-old AND a future-dated answer that the guarded adapter rejects | — |
+| F-3(c) | VALIDATED | `answeredInRound < roundId` rejected; `>=` accepted | — |
+| C-1 | VALIDATED (scoped) | first refresh pins the ratio for the full 300 s despite live movement to $3000 | the High variant needs a variable-remote-band + live-feed lane (a config change) + an actual front-run race |
+| C-2 | VALIDATED (scoped) → **Medium** | `OraclePriceZero` revert + green `getCachedPrice`; adversarial check shows `getOracleHealth()` is **not** fooled (`remoteCached == 0`) | send-ordering "refresh after the reverting fee check" (`InboxBase.sol:220-225`) |
+| C-3 | VALIDATED | one permissionless `refreshCache` promotes a portal peg into the fee basis (budget 3.175M → 5.0M, +57%) | flip-side of F-2; attacker controls only the *timing*, not the admin-chosen value |
+| C-4 | VALIDATED | `maxStaleness==0` + frozen feed re-adopted across refreshes; `priceUpdatedAt` advances each time | requires the `maxStaleness==0` admin opt-out (shipped scripts avoid it) |
+| BB3 | VALIDATED | a failed pull retains the stale cache, does *not* bump `priceUpdatedAt`, *does* advance `lastFetchTimestamp`, and shuts the gate | — |
+
+**Bottom line:** every mechanism is backed by executable proof against the genuine fee/oracle contracts; no PoC was rigged or tautological, and **nothing was refuted**. The only severity change from validation is **C-2 (High → Medium)**. The two "scoped" items (F-1's miner-fronting and C-2's send-ordering) rely on `InboxMiner`/`InboxBase` code the fee-only harness cannot compile, but both were independently confirmed by reading the source at the cited lines.
 
 ---
 
@@ -258,6 +299,7 @@ Two caveats: (1) for the **manual COTI leg** (F-1 / Chain 5) a max-age check is 
 
 ## Appendix — verification method & convergence
 
-- **Two looping AI agents**, run independently to convergence: a *direct-findings* agent (4 passes + a convergence sweep, final verdict "converged, no new findings") and a *chained-findings* agent (5 passes, final verdict "converged, no further chains"). Each pass = brainstorm → trace every candidate from an external entry point → adversarial self-review → re-sweep.
+- **Two looping AI review agents**, run independently to convergence: a *direct-findings* agent (4 passes + a convergence sweep, final verdict "converged, no new findings") and a *chained-findings* agent (5 passes, final verdict "converged, no further chains"). Each pass = brainstorm → trace every candidate from an external entry point → adversarial self-review → re-sweep.
+- **Two PoC agents** then validated the findings empirically: a *PoC author* wrote 11 executable tests reproducing every finding, and an independent *adversarial verifier* re-ran and audited them (adding one cross-check, `verify_c2_health.ts`), issuing per-finding verdicts. The verifier refuted nothing but **downgraded C-2 (High → Medium)** because the shipped `getOracleHealth()` surface is not fooled. See **Empirical PoC validation**. Harness: `hardhat.config.poc.ts`; tests: `test/oracle-poc/`.
 - **Independent orchestrator verification** confirmed the load-bearing facts directly in code and deploy scripts: no staleness check on the fee path; `getPricesUSD` not overridden in `PoDPriceOracle`; no min/max-answer bound and no sequencer feed; `TESTNET_COTI_USD` constant with `manualLeg` "remote"/"both"; `FEE_CONFIG_COTI_SIDE` constant 25M band vs. `FEE_CONFIG_SEPOLIA_SIDE` variable 5M band; miner fronts gas up to `targetFee` via `_localRequestExecutionBudget` → `_computeUserCallGas`.
-- **Honesty notes:** no Critical was found or manufactured; the system's fail-open, fee-only design and the impossibility of an attacker injecting or zeroing a price genuinely defang the paths that would otherwise reach Critical. The strongest finding (F-1 / Chain 5) is a *qualified* High: High impact, medium likelihood, admin-correctable. Where the two agents disagreed on labeling it ("High, medium-confidence" vs. "Medium, borderline High"), that disagreement is reported rather than smoothed over.
+- **Honesty notes:** no Critical was found or manufactured; the system's fail-open, fee-only design and the impossibility of an attacker injecting or zeroing a price genuinely defang the paths that would otherwise reach Critical. The strongest finding (F-1 / Chain 5) is a *qualified* High: High impact, medium likelihood, admin-correctable. Where the two review agents disagreed on labeling it ("High, medium-confidence" vs. "Medium, borderline High"), that disagreement is reported rather than smoothed over. Every finding is now backed by an executable PoC, and the one severity the PoC pass could not fully support (C-2) was downgraded rather than defended.
