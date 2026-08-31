@@ -10,7 +10,7 @@ import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
 /// @notice Core inbox: outbound requests, inbound execution context, responses, errors, and MPC calldata encoding.
 /// @dev Fee API via {FeeManagerStubBase} (DELEGATECALL to {FeeManager}). {InboxEstimateGas} extends this.
 contract InboxBase is IInbox, FeeManagerStubBase {
-    using MinerRejectLib for MpcMethodCall; @audit WHAT IS THIS? 
+    using MinerRejectLib for MpcMethodCall;
     /// @notice This chain's ID (deploy-time; may differ from `block.chainid` when `_chainId` is non-zero).
     uint256 public chainId;
 

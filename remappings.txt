@@ -1,2 +1,3 @@
 @openzeppelin/contracts/=node_modules/@openzeppelin/contracts/
+@coti-io/coti-contracts/=node_modules/@coti-io/coti-contracts/
 forge-std/=lib/forge-std/src/
