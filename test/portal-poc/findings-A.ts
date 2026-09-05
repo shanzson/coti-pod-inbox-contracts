@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { zeroAddress, type Hex } from "viem";
+import { parseEventLogs, zeroAddress, type Hex } from "viem";
 import {
   COTI_SIDE, LOCAL_CHAIN_ID, MAX96, MAX128, OPERATOR_ROLE, ONE, USDC, SEL, Status, WStatus, EStatus,
   connectNet, deployStack, doDeposit, doDepositNative, doWithdraw, deliverSuccess, deliverMintSuccess,
@@ -34,8 +34,17 @@ describe("F1 — withdrawal stuck after pToken transfer Success when payout reve
 
     // COTI leg settles: pToken marks Success, then calls portal.onPTokenTransferred → _releaseWithdrawal
     // → WETH.withdraw + ETH send to the rejecter → revert → swallowed by the pToken (RequestCallbackFailed).
-    const { callbackFailed } = await deliverSuccess(s, transferRequestId, s.user, s.portal.address);
+    const { callbackFailed, receipt: cbReceipt } = await deliverSuccess(s, transferRequestId, s.user, s.portal.address);
     assert.equal(callbackFailed, true, "portal hook must have failed (RequestCallbackFailed)");
+    // The revert happened inside `address(to).call(callbackData)` (PodERC20.sol:367), a low-level call whose failure is
+    // swallowed. The OUTER transaction (the inbox delivery) therefore SUCCEEDED and its state changes persisted:
+    assert.equal(cbReceipt.status, "success", "the callback-delivery transaction did NOT revert");
+    const statusEvents = parseEventLogs({ abi: s.pToken.abi, logs: cbReceipt.logs, eventName: "RequestStatusUpdated" }) as any[];
+    assert.equal(statusEvents.length, 1);
+    assert.equal(Number(statusEvents[0].args.status), Status.Success, "RequestStatusUpdated(Success) was written in that same tx");
+    const hookFailed = parseEventLogs({ abi: s.pToken.abi, logs: cbReceipt.logs, eventName: "RequestCallbackFailed" }) as any[];
+    assert.equal(hookFailed.length, 1, "RequestCallbackFailed emitted in that same tx");
+    log("F1a callback-delivery tx status:", cbReceipt.status, "| events:", [...statusEvents, ...hookFailed].map((e) => e.eventName).join(", "));
     assert.equal(await reqStatus(s, transferRequestId), Status.Success, "pToken transfer is terminal Success");
     assert.equal((await withdrawal(s, withdrawalId)).status, WStatus.TransferPending, "withdrawal still TransferPending");
 
