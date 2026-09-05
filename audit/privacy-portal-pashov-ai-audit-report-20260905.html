@@ -1,0 +1,306 @@
+<!doctype html><html><head><meta charset='utf-8'><title>PrivacyPortal Pashov AI Audit</title><style>
+body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:11.5pt;line-height:1.45;color:#111;max-width:900px;margin:32px auto;padding:0 24px}
+h1{font-size:22pt;border-bottom:2px solid #222;padding-bottom:6px}h2{font-size:16pt;margin-top:28px;border-bottom:1px solid #999;padding-bottom:4px}
+code{font-family:SFMono-Regular,Menlo,Consolas,monospace;font-size:9.6pt;background:#f3f3f3;padding:1px 4px;border-radius:3px}
+pre{background:#f6f8fa;border:1px solid #ddd;border-radius:4px;padding:10px 12px;overflow-x:auto;font-size:9.2pt;line-height:1.35;white-space:pre-wrap;word-break:break-word}
+pre code{background:none;padding:0;font-size:inherit}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:10pt}th,td{border:1px solid #bbb;padding:5px 8px;vertical-align:top;text-align:left}th{background:#eee}
+blockquote{border-left:4px solid #e0a800;background:#fff8e1;margin:16px 0;padding:8px 12px;color:#333}
+hr{border:0;border-top:1px solid #ccc;margin:18px 0}
+li{margin:4px 0}
+@page{size:A4;margin:16mm 14mm}
+</style></head><body><h1>🔐 Security Review — PrivacyPortal &amp; PrivacyPortalFactory</h1>
+<p><strong>Target:</strong> <code>coti-io/coti-contracts</code> @ commit <code>8a0c4928004dac7a6c8d50bde58a022b6912f963</code>
+<strong>Method:</strong> <a href="https://github.com/pashov/skills">pashov/skills</a> <code>solidity-auditor</code> v3 (<code>c577eb7</code>) — 12 parallel specialist agents (math-precision, access-control, economic-security, execution-trace, invariant, periphery, first-principles, asymmetry, boundary, numerical-gap, trust-gap, flow-gap) on <code>opus</code>, followed by orchestrator dedup, four-gate judging, and lead promotion.
+<strong>Date:</strong> 2026-09-05</p>
+<hr />
+<h2>Scope</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Repository / commit</strong></td>
+<td><code>coti-io/coti-contracts</code> @ <code>8a0c4928004dac7a6c8d50bde58a022b6912f963</code></td>
+</tr>
+<tr>
+<td><strong>Mode</strong></td>
+<td>filename</td>
+</tr>
+<tr>
+<td><strong>Files reviewed</strong></td>
+<td><code>contracts/pod/privacy/PrivacyPortal.sol</code> · <code>contracts/pod/privacy/PrivacyPortalFactory.sol</code></td>
+</tr>
+<tr>
+<td><strong>Confidence threshold (1-100)</strong></td>
+<td>80</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Dedup / judging notes.</strong> 25 unique (Contract, function) tuples in the raw agent output; all 25 covered before gating. Rejected at gating: <code>PrivacyPortal.rescueNative</code> (admin-only fee redirect, no unprivileged amplifier), <code>PrivacyPortalFactory._revokeRole</code> (cosmetic), <code>PrivacyPortalFeeLib.packFeeConfig</code> naming (out of scope). Dropped as cosmetic/admin-adversarial: the <code>requestWithdrawWithPermit</code> event-field mismatch and the <code>setLimits</code> "maxWithdraw = 0" freeze.</p>
+<p><strong>Composite chain.</strong> <code>Chain: [10] + [1]</code> at confidence 75 — a full-balance <code>rescueERC20</code> during remount feeds the stuck-withdrawal precondition; combined, the user loses the pTokens <em>and</em> the collateral leaves to <code>rescueRecipient</code>.</p>
+<hr />
+<h2>Findings</h2>
+<p>[90] <strong>1. Withdrawal whose pToken transfer succeeded but whose payout reverts is permanently stuck — both legs frozen, pTokens unburnable</strong></p>
+<p><code>PrivacyPortal._releaseWithdrawal</code> · Confidence: 90 · [agents: 9]</p>
+<p><strong>Description</strong>
+Once <code>pToken.requests(transferRequestId).status == Success</code>, a payout that reverts (a non-payable recipient on a native-wrapped portal, or an issuer-blacklisted recipient on an ERC-20 portal) makes <code>_releaseWithdrawal</code> revert forever while <code>cancelFailedWithdrawal</code> is unreachable (it requires <code>Failed</code>/<code>SystemFailed</code>), so the user's pTokens sit in portal custody outside <code>pendingBurnAmount</code> (never burnable) and the collateral is never released.</p>
+<p><strong>Fix (Option A — allow-and-handle)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #BBB"> </span> IWrappedNative(address(underlyingToken)).withdraw(withdrawal.amount);
+<span style="color: #BBB"> </span> (bool ok,) = payable(withdrawal.recipient).call{value: withdrawal.amount}("");
+<span style="color: #A00000">- if (!ok) {</span>
+<span style="color: #A00000">-     revert EthTransferFailed();</span>
+<span style="color: #A00000">- }</span>
+<span style="color: #008400">+ if (!ok) {</span>
+<span style="color: #008400">+     // do not revert: re-wrap and deliver the ERC-20, or credit a pull-payment claim</span>
+<span style="color: #008400">+     IWrappedNative(address(underlyingToken)).deposit{value: withdrawal.amount}();</span>
+<span style="color: #008400">+     underlyingToken.safeTransfer(withdrawal.recipient, withdrawal.amount);</span>
+<span style="color: #008400">+ }</span>
+</code></pre></div>
+
+<p><strong>Fix (Option B — admin re-target / terminalize)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008400">+ /// Admin-gated, whenPaused counterpart to adminRefundPendingDeposit for a TransferPending</span>
+<span style="color: #008400">+ /// withdrawal whose transferRequestId is already Success: re-target withdrawal.recipient,</span>
+<span style="color: #008400">+ /// or terminalize it while crediting pendingBurnAmount so custodied pTokens stay burnable.</span>
+<span style="color: #008400">+ function adminResolveStuckWithdrawal(bytes32 withdrawalId, address newRecipient)</span>
+<span style="color: #008400">+     external onlyFactoryAdmin whenPaused nonReentrant { ... }</span>
+</code></pre></div>
+
+<hr />
+<p>[85] <strong>2. Blacklist (and pause) are enforced only at request time; the collateral-release leg pays blacklisted recipients from a paused portal</strong></p>
+<p><code>PrivacyPortal._releaseWithdrawal</code> · Confidence: 85 · [agents: 6]</p>
+<p><strong>Description</strong>
+<code>_releaseWithdrawal</code> — reachable permissionlessly via <code>triggerWithdrawalRelease</code> and via the attacker-forgeable <code>onPTokenTransferred</code> callback — checks neither the per-portal/factory blacklist nor <code>paused()</code>, so a withdrawal requested before a blacklisting or pause still pays out afterwards, defeating the control the code's own comment promises and letting collateral leave a paused portal during the <code>whenPaused</code> rescue/migration window.</p>
+<p><strong>Fix (Option A — validate blacklist)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #BBB"> </span> if (requestStatus != IPodERC20.RequestStatus.Success) {
+<span style="color: #BBB"> </span>     revert PTokenTransferNotSuccessful(withdrawal.transferRequestId, requestStatus);
+<span style="color: #BBB"> </span> }
+<span style="color: #008400">+ _checkNotBlacklistedAccount(withdrawal.recipient); // read the factory list via bindingFactory</span>
+<span style="color: #008400">+ _checkNotBlacklistedAccount(withdrawal.user);</span>
+</code></pre></div>
+
+<p><strong>Fix (Option B — validate blacklist + pause via bindingFactory)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008400">+ if (paused() || _controllerFactory().withdrawalsPaused()) revert WithdrawalsPaused();</span>
+<span style="color: #008400">+ if (blacklisted[withdrawal.recipient] || _controllerFactory().blacklisted(withdrawal.recipient)) {</span>
+<span style="color: #008400">+     revert AddressBlacklisted(withdrawal.recipient);</span>
+<span style="color: #008400">+ }</span>
+</code></pre></div>
+
+<p>Either option must be paired with an admin path to re-target/refund a withdrawal that becomes unreleasable — otherwise it converts into finding #1.</p>
+<hr />
+<p>[85] <strong>3. Remount rotates the pToken minter away, bricking the retired portal's <code>adminRefundPendingDeposit</code> for every still-Pending mint</strong></p>
+<p><code>PrivacyPortal.adminRefundPendingDeposit</code> · Confidence: 85 · [agents: 9]</p>
+<p><strong>Description</strong>
+<code>adminRefundPendingDeposit</code> unconditionally calls <code>pToken.invalidatePendingRequest</code> (minter-gated by <code>_checkMinter</code>) whenever the mint is Pending, but <code>createPortalWithExistingPToken</code>/<code>setPTokenMinter</code> move <code>minter</code> to the new portal while every escrow stays on the old one, so the refund reverts <code>OnlyMinter(oldPortal)</code> and the permissionless <code>refundFailedDeposit</code> cannot substitute (it needs <code>SystemFailed</code>), leaving depositor collateral unrefundable until an undocumented minter-swap or a <code>requestKillMinAge</code>-gated kill.</p>
+<p><strong>Fix (Option A — authorize the owner/factory to invalidate)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #BBB"> </span> // PodERC20.invalidatePendingRequest
+<span style="color: #A00000">- _checkMinter();</span>
+<span style="color: #008400">+ if (msg.sender != minter &amp;&amp; msg.sender != owner()) revert OnlyMinter(msg.sender);</span>
+<span style="color: #008400">+ // plus a PrivacyPortalFactory forwarder (guarded by _requireFactoryOwnedPToken) that</span>
+<span style="color: #008400">+ // adminRefundPendingDeposit falls back to when pToken.minter() != address(this)</span>
+</code></pre></div>
+
+<p><strong>Fix (Option B — refuse remount while escrows are pending)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #BBB"> </span> // PrivacyPortalFactory.createPortalWithExistingPToken, before setMinter
+<span style="color: #008400">+ if (IPrivacyPortal(oldPortal).pendingEscrowCount() != 0) revert OldPortalHasPendingEscrows(oldPortal);</span>
+</code></pre></div>
+
+<p><strong>Fix (Option C — remove the kill delay before rotating)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008400">+ IPodERC20(existingPToken).setRequestKillMinAge(0); // factory is the pToken's Ownable owner</span>
+<span style="color: #BBB"> </span> PodErc20Mintable(payable(existingPToken)).setMinter(portal);
+</code></pre></div>
+
+<hr />
+<p>[80] <strong>4. Cross-factory remount skips every old-portal safety guard and rotates the minter away from a still-live portal</strong></p>
+<p><code>PrivacyPortalFactory.createPortalWithExistingPToken</code> · Confidence: 80 · [agents: 4]</p>
+<p><strong>Description</strong>
+The <code>OldPortalNotPaused</code>, native-mode, and <code>retireDepositsForUpgrade</code> checks are nested under <code>if (oldPortal != address(0))</code> where <code>oldPortal</code> is read from this factory's own <code>portalForPToken</code>, so on the documented <code>transferPTokenOwnership</code> → remount-on-new-factory path they are all skipped while <code>setMinter(newPortal)</code> still runs — leaving the previous portal unpaused, un-retired, still serving withdrawals against its own collateral, with one pToken supply floating over two disjoint pools.</p>
+<p><strong>Fix</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008400">+ address prevMinter = PodErc20Mintable(payable(existingPToken)).minter();</span>
+<span style="color: #008400">+ if (prevMinter != address(0) &amp;&amp; prevMinter != portal &amp;&amp; prevMinter.code.length != 0) {</span>
+<span style="color: #008400">+     if (!IPrivacyPortal(prevMinter).paused()) revert OldPortalNotPaused(prevMinter);</span>
+<span style="color: #008400">+     // apply the same nativeWrappedUnderlying equality check against prevMinter</span>
+<span style="color: #008400">+ }</span>
+<span style="color: #BBB"> </span> PodErc20Mintable(payable(existingPToken)).setMinter(portal);
+</code></pre></div>
+
+<hr />
+<p>[80] <strong>5. <code>createPortal</code> returns a live, deposit-enabled portal before the one-way COTI registration has landed</strong></p>
+<p><code>PrivacyPortalFactory.createPortal</code> · Confidence: 80 · [agents: 3]</p>
+<p><strong>Description</strong>
+Unlike <code>createPortalWithExistingPToken</code> (which calls <code>pauseByFactory()</code>), <code>createPortal</code> never pauses the clone and <code>initialize</code> hardcodes <code>isDepositEnabled = true</code>, so deposits made before the fire-and-forget <code>registerToken</code> message executes on COTI hit <code>TokenNotRegistered</code> (a retryable revert that leaves the mint <code>Pending</code>) and lock collateral behind an admin-only, pause-gated refund.</p>
+<p><strong>Fix (Option A — start closed)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #BBB"> </span> IPrivacyPortal(portal).initialize(underlying, pToken, decimals, nativeWrappedUnderlying, address(this));
+<span style="color: #008400">+ IPrivacyPortal(portal).pauseByFactory(); // admin unpauses after observing TokenRegistered on COTI</span>
+</code></pre></div>
+
+<p><strong>Fix (Option B — safe default in initialize)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #BBB"> </span> // PrivacyPortal.initialize
+<span style="color: #A00000">- isDepositEnabled = true;</span>
+<span style="color: #008400">+ isDepositEnabled = false;</span>
+</code></pre></div>
+
+<hr />
+<p>[80] <strong>6. Minter rotation in the remount path inspects none of the retiring portal's in-flight escrows (factory side of #3)</strong></p>
+<p><code>PrivacyPortalFactory.createPortalWithExistingPToken</code> · Confidence: 80 · [agents: 2]</p>
+<p><strong>Description</strong>
+<code>setMinter(portal)</code> is executed unconditionally in the remount path with no check of the retiring portal's Pending deposit escrows, which is precisely what revokes the authority finding #3 depends on — and the test mocks (<code>MockPodErc20MintableForPortal</code> lacks <code>invalidatePendingRequest</code>; <code>MockPodERC20ForPortal</code>'s has no minter gate) cannot observe it.</p>
+<p><strong>Fix (Option A — keep the retired portal authorized)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008400">+ // let the pToken's Ownable owner (the factory) also authorize invalidatePendingRequest,</span>
+<span style="color: #008400">+ // and add a factory forwarder so a retired portal's admin refund can terminalize the mint</span>
+</code></pre></div>
+
+<p><strong>Fix (Option B — drain before rotating)</strong></p>
+<div class="codehilite" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code><span style="color: #008400">+ // require the old portal to report zero Pending escrows (or invalidate them via a</span>
+<span style="color: #008400">+ // factory-mediated call) before PodErc20Mintable(existingPToken).setMinter(portal)</span>
+</code></pre></div>
+
+<hr />
+<p>[75] <strong>7. Operator role can freeze all withdrawals via an unbounded <code>fixedFee</code> floor</strong></p>
+<p><code>PrivacyPortal.setWithdrawFee</code> (and <code>PrivacyPortalFactory.setDefaultWithdrawFee</code>) · Confidence: 75 · [agents: 2]</p>
+<p><strong>Description</strong>
+<code>packFeeConfig</code> caps <code>percentageBps</code> at 10% but bounds <code>fixedFee</code> only by <code>uint96</code>, so an OPERATOR_ROLE holder — documented for "routine fee-parameter updates" — can set a withdraw-fee floor no wallet can pay (per portal, or factory-wide in one call) and block every <code>requestWithdrawWithPermit</code> with no <code>Paused</code> event, <code>paused()==false</code>, and no rescue enablement, an emergency-stop the role model reserves for <code>DEFAULT_ADMIN_ROLE</code>.</p>
+<hr />
+<p>[75] <strong>8. <code>refundFailedDeposit</code> rejects mint status <code>Failed</code>, which the protocol's own ops tools write</strong></p>
+<p><code>PrivacyPortal.refundFailedDeposit</code> · Confidence: 75 · [agents: 4]</p>
+<p><strong>Description</strong>
+The permissionless refund accepts only <code>SystemFailed</code>, but <code>killPTokenStaleRequest</code>/<code>invalidatePendingRequest</code> terminalize a stuck mint as <code>Failed</code>, so clearing a stale mint kills the permissionless refund and forces a full-portal pause plus admin refund for a single depositor — unlike <code>cancelFailedWithdrawal</code>, which accepts both terminal states (and <code>DepositEscrowStatus.Failed</code> is never written anywhere, leaving that branch dead).</p>
+<hr />
+<p>[75] <strong>9. Deposit limits and the fee are checked on the requested <code>amount</code>, but the position is minted from the measured <code>received</code></strong></p>
+<p><code>PrivacyPortal._deposit</code> (and <code>depositNative</code>) · Confidence: 75 · [agents: 8]</p>
+<p><strong>Description</strong>
+<code>_checkDepositLimits(amount)</code> runs before the balance-delta measurement while escrow and mint use <code>received</code>, so with a fee-on-transfer underlying (an explicitly supported case, with a 5% mock in the repo) a deposit that passes <code>minDepositAmount</code> creates a position below <code>minWithdrawAmount</code> that can never be withdrawn, and the percentage fee is charged on the pre-fee notional.</p>
+<hr />
+<p>[75] <strong>10. <code>rescueERC20</code> has no reserve for withdrawals already in <code>TransferPending</code>, so the documented migration drains committed collateral</strong></p>
+<p><code>PrivacyPortal.rescueERC20</code> · Confidence: 75 · [agents: 4]</p>
+<p><strong>Description</strong>
+The portal keeps no aggregate of in-flight withdrawals and <code>rescueERC20</code> excludes only the pToken, so the pause → remount → rescue-full-balance procedure (exactly what the repo's tests perform) removes collateral that pending withdrawals still need; when those transfers settle <code>Success</code> the release reverts on balance, the pTokens are custodied but uncounted, and the user ends with neither leg.</p>
+<hr />
+<p>[75] <strong>11. Fee floor silently collapses to <code>fixedFee</code> (legally 0) when the oracle returns a zero rate</strong></p>
+<p><code>PrivacyPortal._portalFeeFloor</code> · Confidence: 75 · [agents: 4]</p>
+<p><strong>Description</strong>
+<code>resolvePortalFee</code> returns <code>(fixedFee, false)</code> on any zero rate and <code>_portalFeeFloor</code> discards the <code>usedDynamicPricing</code> flag, so a portal whose underlying was never priced (<code>createPortal</code> sets no peg), a cleared peg, or a stale-to-zero adapter degrades a configured percentage fee to the flat fee — which <code>packFeeConfig</code> allows to be 0 — with no revert and no event.</p>
+<hr />
+<p>[75] <strong>12. <code>setLimits</code> accepts <code>maxWithdraw &lt; 2·minWithdraw</code>, leaving balances in the gap unredeemable</strong></p>
+<p><code>PrivacyPortal.setLimits</code> · Confidence: 75 · [agents: 1]</p>
+<p><strong>Description</strong>
+Each min/max pair is validated only against itself, so with <code>maxWithdraw &lt; 2·minWithdraw − 1</code> a balance in <code>(maxWithdraw, 2·minWithdraw)</code> cannot be split into any legal sequence of withdrawals and its sub-minimum residue is permanently locked whenever deposits are disabled or the portal is retired.</p>
+<hr />
+<p>[70] <strong>13. <code>wrap</code> charges an execution-time fee with no caller-supplied bound</strong></p>
+<p><code>PrivacyPortal.wrap</code> · Confidence: 70 · [agents: 5]</p>
+<p><strong>Description</strong>
+<code>wrap</code> is the only value entry point that derives <code>portalFee</code> from the live floor instead of validating a caller-declared value, so a fee or oracle move between quote and inclusion (market drift, or an operator <code>setDepositFee</code> front-run) is silently absorbed as protocol fee and starves the forwarded mint budget, where <code>deposit</code> would have reverted with <code>InsufficientPortalFee</code>.</p>
+<hr />
+<p>[70] <strong>14. Escrow, burn, and withdrawal state are keyed on inbox request ids that are unique only per inbox instance</strong></p>
+<p><code>PrivacyPortal._deposit</code> · Confidence: 70 · [agents: 7]</p>
+<p><strong>Description</strong>
+<code>depositEscrows[requestId]</code> and <code>burnInFlight[burnRequestId]</code> are written unconditionally and <code>PodERC20._setRequestStatus</code> does not guard writes of <code>Pending</code>, so if the admin re-points the pToken at a fresh inbox (<code>configurePToken</code>) whose per-target nonce restarts, colliding ids overwrite live escrows (destroying refund claims), double-count <code>burnInFlightTotal</code> (wedging batch burns), and can resurrect a stranded withdrawal's <code>transferRequestId</code> to <code>Success</code> — letting <code>triggerWithdrawalRelease</code> pay out collateral for a pToken transfer that never happened.</p>
+<hr />
+<h2>Findings List</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Confidence</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>[90]</td>
+<td>Stuck withdrawal after successful pToken transfer — both legs frozen</td>
+</tr>
+<tr>
+<td>2</td>
+<td>[85]</td>
+<td>Blacklist/pause not enforced on the collateral-release leg</td>
+</tr>
+<tr>
+<td>3</td>
+<td>[85]</td>
+<td>Remount minter rotation bricks <code>adminRefundPendingDeposit</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>[80]</td>
+<td>Cross-factory remount skips all old-portal guards</td>
+</tr>
+<tr>
+<td>5</td>
+<td>[80]</td>
+<td><code>createPortal</code> returns a live portal before COTI registration</td>
+</tr>
+<tr>
+<td>6</td>
+<td>[80]</td>
+<td>Remount rotates minter with no in-flight-escrow check (factory side of #3)</td>
+</tr>
+<tr>
+<td>7</td>
+<td>[75]</td>
+<td>Operator can freeze withdrawals via unbounded <code>fixedFee</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>[75]</td>
+<td><code>refundFailedDeposit</code> rejects the <code>Failed</code> state ops tools write</td>
+</tr>
+<tr>
+<td>9</td>
+<td>[75]</td>
+<td>Deposit limits/fee on requested <code>amount</code> vs measured <code>received</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td>[75]</td>
+<td><code>rescueERC20</code> drains collateral committed to pending withdrawals</td>
+</tr>
+<tr>
+<td>11</td>
+<td>[75]</td>
+<td>Fee floor collapses to <code>fixedFee</code>/0 on zero oracle rate</td>
+</tr>
+<tr>
+<td>12</td>
+<td>[75]</td>
+<td><code>setLimits</code> allows an unpartitionable withdraw window</td>
+</tr>
+<tr>
+<td>13</td>
+<td>[70]</td>
+<td><code>wrap</code> has no caller-side fee bound</td>
+</tr>
+<tr>
+<td>14</td>
+<td>[70]</td>
+<td>Request-id reuse across inbox rotation corrupts escrow/burn/withdrawal state</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Leads</h2>
+<p><em>Vulnerability trails with concrete code smells where the full exploit path could not be completed in one analysis pass. These are not false positives — they are high-signal leads for manual review. Not scored.</em></p>
+<ul>
+<li><strong>Permissionless release entry inherits the release-leg gap</strong> — <code>PrivacyPortal.triggerWithdrawalRelease</code> — Code smells: no access control, no pause/blacklist check — the surface through which #2 fires and through which a resurrected <code>transferRequestId</code> (#14) would be cashed; the pause-bypass is asserted as intended by a remount test, which is what creates the #10 migration race.</li>
+<li><strong><code>burnInFlight</code> overwrite double-counts <code>burnInFlightTotal</code></strong> — <code>PrivacyPortal.burnAccumulatedPTokens</code> — Code smells: <code>burnInFlight[id] = amount</code> (assignment) beside <code>burnInFlightTotal += amount</code> (increment) with no occupancy check — on an id collision (#14) the total inflates permanently and <code>available</code> underflows, wedging batch burns.</li>
+<li><strong>Forgeable <code>OnlyPToken</code> guard</strong> — <code>PrivacyPortal.onPTokenTransferred</code> — Code smells: <code>transferAndCall</code> lets any holder make the pToken issue arbitrary calldata with <code>msg.sender == pToken</code> — harmless today only because the handler re-validates everything; any future pToken-trusting handler on the portal would be directly exploitable.</li>
+<li><strong>Unguarded oracle call on every user path, including exit</strong> — <code>PrivacyPortal._portalFeeFloor</code> / <code>requestWithdrawWithPermit</code> — Code smells: <code>oracle.getLivePrices</code> with no try/catch; <code>IPodPriceOracle</code> only <em>promises</em> non-revert and <code>setPriceOracle</code> checks only code length — a reverting or gas-bombing adapter bricks deposits and new withdrawals factory-wide; no shipped adapter reproduces it.</li>
+<li><strong>Force-<code>Failed</code> transfer may close a withdrawal whose COTI leg settled</strong> — <code>PrivacyPortal.cancelFailedWithdrawal</code> — Code smells: <code>killStaleRequest</code>/<code>invalidatePendingRequest</code> write <code>Failed</code> with no knowledge of COTI settlement — if the leg did settle, pTokens are custodied uncounted and the ticket closes with no collateral released; unverified whether COTI settlement can outlive a killed request.</li>
+<li><strong><code>pendingBurnAmount</code> can be permanently over-stated</strong> — <code>PrivacyPortal.finalizeBatchBurn</code> — Code smells: only <code>Success</code> decrements it; a burn that settled on COTI but lost its callback, then admin-killed to <code>Failed</code>, takes the failure branch with no corrective setter.</li>
+<li><strong>Outbound legs are unmeasured; refunds don't unwrap</strong> — <code>PrivacyPortal._releaseWithdrawal</code> / <code>refundFailedDeposit</code> — Code smells: unwrap has no native-delta check (a shortfall would be paid from the fee balance); outbound fee-on-transfer direction untested (the mock's "portal never calls <code>transfer</code>" comment is false); <code>depositNative</code> users are refunded in WETH.</li>
+<li><strong>18-decimal assumption for the wrapped native</strong> — <code>PrivacyPortal.depositNative</code> — Code smells: <code>amount</code> used both as wei and as token units for limits/fee-notional; the factory never asserts <code>decimals == 18</code> for the native-wrapped case; no deployment target found where it breaks.</li>
+<li><strong>Per-portal risk controls reset on remount</strong> — <code>PrivacyPortal.initialize</code> — Code smells: the new clone starts with an empty per-portal blacklist, default limits, cleared fee overrides; only factory-wide controls survive; window exists only if the admin unpauses without reconfiguring.</li>
+<li><strong>One-shot, unacknowledged mother registration; underlying slot can be squatted</strong> — <code>PrivacyPortalFactory.createPortal</code> — Code smells: fire-and-forget <code>sendOneWayMessage</code> with no error selector, <code>_requestMotherRegistration</code> private with no re-send, mappings never cleared, <code>createPortal</code> is the lowest-trust <code>DEPLOYER_ROLE</code> — a failed registration or a deployer pre-emption permanently occupies the underlying; unverified whether inbox retry re-drives the message.</li>
+<li><strong>Rotating the COTI peer on a live pToken strands in-flight requests</strong> — <code>PrivacyPortalFactory.configurePToken</code> — Code smells: overwrites <code>trustedRemote</code>, so old-peer callbacks fail <code>UntrustedPeer</code> and requests never leave <code>Pending</code>; no paused precondition, unlike the remount path.</li>
+<li><strong><code>setPTokenMinter</code> leaves the mapped portal advertising itself live</strong> — <code>PrivacyPortalFactory.setPTokenMinter</code> — Code smells: no coupled retire/pause/mapping update; deposits revert <code>OnlyMinter</code> while <code>isDepositEnabled</code>/<code>paused()</code> still read open.</li>
+<li><strong>Constructor skips the code-existence checks the setters enforce</strong> — <code>PrivacyPortalFactory.constructor</code> — Code smells: implementations/oracle only zero-checked at deploy; a codeless <code>portalImplementation</code> yields silently "initialized" clones that permanently occupy <code>portalForUnderlying</code> (no delete path), a codeless oracle bricks every portal's fee path.</li>
+</ul>
+<hr />
+<blockquote>
+<p>⚠️ This review was performed by an AI assistant. AI analysis can never verify the complete absence of vulnerabilities and no guarantee of security is given. Team security reviews, bug bounty programs, and on-chain monitoring are strongly recommended. For a consultation regarding your projects' security, visit <a href="https://www.pashov.com">https://www.pashov.com</a></p>
+</blockquote></body></html>
