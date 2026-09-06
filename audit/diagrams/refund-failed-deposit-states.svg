@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1380" viewBox="0 0 1600 1380">
+<defs><marker id="ah" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" fill="#374151"/></marker></defs>
+<rect width="1600" height="1380" fill="#ffffff"/>
+<text x="40" y="46" font-family="'DejaVu Sans', Arial, sans-serif" font-size="25" font-weight="bold" fill="#374151">refundFailedDeposit(requestId) — required state, all status values, and every outcome</text>
+<text x="40" y="74" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="normal" fill="#4b5563">PrivacyPortal.sol:583-601 · status writers in PrivacyPortal.sol / PodERC20.sol · coti-contracts 8a0c4928</text>
+<rect x="20" y="95" width="1560" height="250" rx="14" fill="#dbeafe" opacity="0.35"/>
+<text x="40" y="125" font-family="'DejaVu Sans', Arial, sans-serif" font-size="19" font-weight="bold" fill="#111827">1 · The two gates inside the function (in execution order)</text>
+<rect x="40" y="150" width="190" height="70" rx="10" fill="#f3f4f6" stroke="#1f2937" stroke-width="2"/>
+<text x="135.0" y="179.83333333333334" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#111827">anyone calls</text>
+<text x="135.0" y="198.83333333333334" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#111827">refundFailedDeposit(id)</text>
+<line x1="230" y1="185.0" x2="262" y2="185.0" stroke="#374151" stroke-width="2.5" marker-end="url(#ah)"/>
+<rect x="262" y="150" width="380" height="70" rx="10" fill="#ffffff" stroke="#1d4ed8" stroke-width="2"/>
+<text x="452.0" y="169.66666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="bold" fill="#111827">GATE 1  (portal storage)</text>
+<text x="452.0" y="189.66666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">depositEscrows[id].status</text>
+<text x="452.0" y="209.66666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">∈ { Pending , Failed } ?</text>
+<line x1="642" y1="185.0" x2="702" y2="185.0" stroke="#374151" stroke-width="2.5" marker-end="url(#ah)"/>
+<text x="672.0" y="175.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" fill="#374151">yes</text>
+<rect x="702" y="150" width="380" height="70" rx="10" fill="#ffffff" stroke="#1d4ed8" stroke-width="2"/>
+<text x="892.0" y="169.66666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="bold" fill="#111827">GATE 2  (pToken storage)</text>
+<text x="892.0" y="189.66666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">pToken.requests(id).status</text>
+<text x="892.0" y="209.66666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">== SystemFailed ?</text>
+<line x1="1082" y1="185.0" x2="1142" y2="185.0" stroke="#374151" stroke-width="2.5" marker-end="url(#ah)"/>
+<text x="1112.0" y="175.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" fill="#374151">yes</text>
+<rect x="1142" y="150" width="418" height="70" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
+<text x="1351.0" y="170.33333333333334" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">REFUND ✔</text>
+<text x="1351.0" y="189.33333333333334" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#111827">escrow.status = Refunded; escrow.amount = 0</text>
+<text x="1351.0" y="208.33333333333334" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#111827">underlying.safeTransfer(escrow.user, amount)</text>
+<line x1="452" y1="220" x2="452" y2="260" stroke="#b91c1c" stroke-width="2.5" marker-end="url(#ah)"/>
+<text x="467" y="248" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" fill="#b91c1c">no</text>
+<rect x="272" y="260" width="360" height="46" rx="10" fill="#fee2e2" stroke="#b91c1c" stroke-width="2"/>
+<text x="452.0" y="287.6666666666667" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#7f1d1d">revert DepositEscrowInvalid(id, status)</text>
+<line x1="892" y1="220" x2="892" y2="260" stroke="#b91c1c" stroke-width="2.5" marker-end="url(#ah)"/>
+<text x="907" y="248" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" fill="#b91c1c">no</text>
+<rect x="702" y="260" width="380" height="46" rx="10" fill="#fee2e2" stroke="#b91c1c" stroke-width="2"/>
+<text x="892.0" y="287.6666666666667" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#7f1d1d">revert DepositMintNotFailed(id, mintStatus)</text>
+<text x="1142" y="272" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#065f46">→ emit DepositRefunded(user, id, amount)</text>
+<text x="1142" y="292" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#065f46">Permissionless. Funds always go to escrow.user.</text>
+<text x="40" y="325" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#1e3a8a">Note: DepositEscrowStatus.Failed is accepted by gate 1 but is never written anywhere in PrivacyPortal.sol — in practice gate 1 means “escrow is Pending”.</text>
+<rect x="20" y="365" width="1560" height="225" rx="14" fill="#fef3c7" opacity="0.35"/>
+<text x="40" y="395" font-family="'DejaVu Sans', Arial, sans-serif" font-size="19" font-weight="bold" fill="#111827">2 · Portal side — DepositEscrowStatus (IPrivacyPortal.sol:23-31) · writers in PrivacyPortal.sol</text>
+<rect x="40" y="425" width="175" height="56" rx="10" fill="#f3f4f6" stroke="#1f2937" stroke-width="2"/>
+<text x="127.5" y="447.6666666666667" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">None (0)</text>
+<text x="127.5" y="467.6666666666667" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">no escrow for id</text>
+<line x1="215" y1="453.0" x2="360" y2="453.0" stroke="#374151" stroke-width="2.5" marker-end="url(#ah)"/>
+<text x="275.0" y="441.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" fill="#374151">deposit / depositNative</text>
+<rect x="360" y="425" width="230" height="56" rx="10" fill="#fef9c3" stroke="#ca8a04" stroke-width="2"/>
+<text x="475.0" y="447.6666666666667" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="bold" fill="#111827">Pending (1)</text>
+<text x="475.0" y="467.6666666666667" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">written :424 / :472</text>
+<line x1="590" y1="453.0" x2="740" y2="453.0" stroke="#374151" stroke-width="2.5" marker-end="url(#ah)"/>
+<text x="665.0" y="441.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" fill="#374151">refund paths</text>
+<rect x="740" y="425" width="250" height="56" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
+<text x="865.0" y="447.6666666666667" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="bold" fill="#111827">Refunded (3)</text>
+<text x="865.0" y="467.6666666666667" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">written :597 / :638</text>
+<rect x="1060" y="425" width="250" height="56" rx="10" fill="#f3f4f6" stroke="#9ca3af" stroke-width="2" stroke-dasharray="6,5"/>
+<text x="1185.0" y="447.6666666666667" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">Failed (2)</text>
+<text x="1185.0" y="467.6666666666667" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#6b7280">declared, NEVER written</text>
+<text x="1330" y="458.0" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#6b7280">← dead branch of gate 1</text>
+<text x="360" y="505" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#92400e">stays Pending after a SUCCESSFUL mint too — nothing ever updates the escrow on mint success</text>
+<text x="40" y="545" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#92400e">refund writers:  refundFailedDeposit (needs pToken SystemFailed)  ·  adminRefundPendingDeposit (DEFAULT_ADMIN, portal paused, pToken status ≠ Success)</text>
+<text x="40" y="567" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#92400e">No transition Pending → Failed exists, and there is no path back from Refunded.</text>
+<rect x="20" y="615" width="1560" height="430" rx="14" fill="#fee2e2" opacity="0.35"/>
+<text x="40" y="645" font-family="'DejaVu Sans', Arial, sans-serif" font-size="19" font-weight="bold" fill="#111827">3 · pToken side — IPodERC20.RequestStatus (IPodERC20.sol:13-21) · writers in PodERC20.sol</text>
+<rect x="40" y="800" width="175" height="64" rx="10" fill="#f3f4f6" stroke="#1f2937" stroke-width="2"/>
+<text x="127.5" y="826.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">None (0)</text>
+<text x="127.5" y="846.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">unknown request id</text>
+<line x1="215" y1="832.0" x2="360" y2="832.0" stroke="#374151" stroke-width="2.5" marker-end="url(#ah)"/>
+<text x="275.0" y="820.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" fill="#374151">mint() sends message</text>
+<rect x="360" y="800" width="250" height="64" rx="10" fill="#fef9c3" stroke="#ca8a04" stroke-width="2"/>
+<text x="485.0" y="816.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="bold" fill="#111827">Pending (1)</text>
+<text x="485.0" y="836.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">_setRequestStatus</text>
+<text x="485.0" y="856.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">at send</text>
+<line x1="610" y1="832.0" x2="650" y2="832.0" stroke="#374151" stroke-width="2.5"/>
+<line x1="650" y1="733.0" x2="650" y2="943.0" stroke="#374151" stroke-width="2.5"/>
+<line x1="650" y1="733.0" x2="700" y2="733.0" stroke="#374151" stroke-width="2.5" marker-end="url(#ah)"/>
+<line x1="650" y1="832.0" x2="700" y2="832.0" stroke="#374151" stroke-width="2.5" marker-end="url(#ah)"/>
+<line x1="650" y1="943.0" x2="700" y2="943.0" stroke="#374151" stroke-width="2.5" marker-end="url(#ah)"/>
+<rect x="700" y="705" width="460" height="56" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
+<text x="930.0" y="727.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="bold" fill="#111827">Success (2)</text>
+<text x="930.0" y="747.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">transferCallback :336  (COTI leg succeeded)</text>
+<rect x="700" y="800" width="460" height="64" rx="10" fill="#fff7ed" stroke="#c2410c" stroke-width="2"/>
+<text x="930.0" y="817.3333333333334" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">Failed (3)</text>
+<text x="930.0" y="836.3333333333334" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#111827">transferError (app raise) :437 · killStaleRequest :602</text>
+<text x="930.0" y="855.3333333333334" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#111827">invalidatePendingRequest :578</text>
+<rect x="700" y="915" width="460" height="56" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
+<text x="930.0" y="937.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="bold" fill="#111827">SystemFailed (4)</text>
+<text x="930.0" y="957.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="14" font-weight="normal" fill="#111827">_handleSystemError :686  (inbox SystemError leg)</text>
+<line x1="1160" y1="733.0" x2="1192" y2="733.0" stroke="#b91c1c" stroke-width="2.5" marker-end="url(#ah)"/>
+<line x1="1160" y1="832.0" x2="1192" y2="832.0" stroke="#b91c1c" stroke-width="2.5" marker-end="url(#ah)"/>
+<line x1="1160" y1="943.0" x2="1192" y2="943.0" stroke="#059669" stroke-width="2.5" marker-end="url(#ah)"/>
+<rect x="1192" y="701" width="368" height="64" rx="10" fill="#fee2e2" stroke="#b91c1c" stroke-width="2"/>
+<text x="1376.0" y="727.9166666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" font-weight="normal" fill="#7f1d1d">→ DepositMintNotFailed</text>
+<text x="1376.0" y="746.4166666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" font-weight="normal" fill="#7f1d1d">pTokens WERE minted (correct rejection)</text>
+<rect x="1192" y="800" width="368" height="64" rx="10" fill="#fee2e2" stroke="#b91c1c" stroke-width="2"/>
+<text x="1376.0" y="817.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" font-weight="normal" fill="#7f1d1d">→ DepositMintNotFailed</text>
+<text x="1376.0" y="836.1666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" font-weight="normal" fill="#7f1d1d">recovery only via pause +</text>
+<text x="1376.0" y="854.6666666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" font-weight="normal" fill="#7f1d1d">adminRefundPendingDeposit  (#8)</text>
+<rect x="1192" y="911" width="368" height="64" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
+<text x="1376.0" y="937.9166666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" font-weight="normal" fill="#065f46">→ REFUND ✔</text>
+<text x="1376.0" y="956.4166666666666" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" font-weight="normal" fill="#065f46">the ONLY status that passes gate 2</text>
+<text x="40" y="1000" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#7f1d1d">Pending also fails gate 2 (DepositMintNotFailed): callback not delivered yet, or COTI keeps reverting and retrying (e.g. TokenNotRegistered before registration).</text>
+<text x="40" y="1025" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#7f1d1d">Success / Failed / SystemFailed are terminal (_setRequestStatus :628-637 allows them only from Pending). SystemFailed = the inbox rejected the message before the COTI app ran — not an app failure.</text>
+<rect x="20" y="1070" width="1560" height="290" rx="14" fill="#e5e7eb" opacity="0.35"/>
+<text x="40" y="1100" font-family="'DejaVu Sans', Arial, sans-serif" font-size="19" font-weight="bold" fill="#111827">4 · Outcome matrix — escrow status (rows) × pToken status (columns)</text>
+<rect x="40" y="1115" width="270" height="40" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1"/>
+<text x="175.0" y="1140.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="bold" fill="#111827">escrow ↓   /   pToken →</text>
+<rect x="310" y="1115" width="250" height="40" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1"/>
+<text x="435.0" y="1140.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">None (0)</text>
+<rect x="560" y="1115" width="250" height="40" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1"/>
+<text x="685.0" y="1140.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">Pending (1)</text>
+<rect x="810" y="1115" width="250" height="40" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1"/>
+<text x="935.0" y="1140.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">Success (2)</text>
+<rect x="1060" y="1115" width="250" height="40" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1"/>
+<text x="1185.0" y="1140.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">Failed (3)</text>
+<rect x="1310" y="1115" width="250" height="40" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1"/>
+<text x="1435.0" y="1140.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">SystemFailed (4)</text>
+<rect x="40" y="1155" width="270" height="40" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1"/>
+<text x="175.0" y="1180.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">None (0)</text>
+<rect x="310" y="1155" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="435.0" y="1180.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositEscrowInvalid</text>
+<rect x="560" y="1155" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="685.0" y="1180.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositEscrowInvalid</text>
+<rect x="810" y="1155" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="935.0" y="1180.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositEscrowInvalid</text>
+<rect x="1060" y="1155" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="1185.0" y="1180.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositEscrowInvalid</text>
+<rect x="1310" y="1155" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="1435.0" y="1180.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositEscrowInvalid</text>
+<rect x="40" y="1195" width="270" height="40" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1"/>
+<text x="175.0" y="1220.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">Pending (1)</text>
+<rect x="310" y="1195" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="435.0" y="1220.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositMintNotFailed</text>
+<rect x="560" y="1195" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="685.0" y="1220.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositMintNotFailed</text>
+<rect x="810" y="1195" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="935.0" y="1220.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositMintNotFailed</text>
+<rect x="1060" y="1195" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="1185.0" y="1220.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositMintNotFailed</text>
+<rect x="1310" y="1195" width="250" height="40" fill="#d1fae5" stroke="#9ca3af" stroke-width="1"/>
+<text x="1435.0" y="1220.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#065f46">REFUND ✔</text>
+<rect x="40" y="1235" width="270" height="40" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1"/>
+<text x="175.0" y="1260.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">Failed (2)  [never written]</text>
+<rect x="310" y="1235" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="435.0" y="1260.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositMintNotFailed</text>
+<rect x="560" y="1235" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="685.0" y="1260.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositMintNotFailed</text>
+<rect x="810" y="1235" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="935.0" y="1260.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositMintNotFailed</text>
+<rect x="1060" y="1235" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="1185.0" y="1260.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositMintNotFailed</text>
+<rect x="1310" y="1235" width="250" height="40" fill="#d1fae5" stroke="#9ca3af" stroke-width="1"/>
+<text x="1435.0" y="1260.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#065f46">REFUND ✔</text>
+<rect x="40" y="1275" width="270" height="40" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1"/>
+<text x="175.0" y="1300.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="bold" fill="#111827">Refunded (3)</text>
+<rect x="310" y="1275" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="435.0" y="1300.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositEscrowInvalid</text>
+<rect x="560" y="1275" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="685.0" y="1300.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositEscrowInvalid</text>
+<rect x="810" y="1275" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="935.0" y="1300.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositEscrowInvalid</text>
+<rect x="1060" y="1275" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="1185.0" y="1300.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositEscrowInvalid</text>
+<rect x="1310" y="1275" width="250" height="40" fill="#fee2e2" stroke="#9ca3af" stroke-width="1"/>
+<text x="1435.0" y="1300.0" text-anchor="middle" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="13" font-weight="normal" fill="#7f1d1d">DepositEscrowInvalid</text>
+<text x="40" y="1343" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="normal" fill="#374151">Reachable in practice: only the “Pending” row. (Pending, None) cannot occur — the escrow key is the request id returned by mint(), which is written Pending in the same transaction.</text>
+</svg>
