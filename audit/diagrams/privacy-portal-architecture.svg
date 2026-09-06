@@ -1,0 +1,222 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="1300" viewBox="0 0 1900 1300">
+<defs><marker id="ah" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" fill="#374151"/></marker></defs>
+<rect width="1900" height="1300" fill="#ffffff"/>
+<text x="30" y="40" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="25" font-weight="bold" fill="#111827">Privacy Portal architecture — source chain ↔ COTI: contracts, roles, state and flows</text>
+<text x="30" y="66" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13.5" font-weight="normal" fill="#4b5563">coti-contracts 8a0c4928 · PrivacyPortalFactory / PrivacyPortal / PodErc20MintableInitializable / PodErc20CotiMother · circled numbers refer to the flow legend</text>
+<rect x="360" y="95" width="860" height="795" rx="12" fill="#dbeafe" stroke="#93c5fd" stroke-width="2" opacity="0.55"/>
+<text x="375" y="118" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#1e3a8a">SOURCE CHAIN (e.g. Ethereum / Avalanche)</text>
+<rect x="1260" y="95" width="610" height="795" rx="12" fill="#fef3c7" stroke="#fcd34d" stroke-width="2" opacity="0.6"/>
+<text x="1275" y="118" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#92400e">COTI (garbled-circuit MPC chain)</text>
+<rect x="30" y="150" width="290" height="62" rx="12" fill="#f3f4f6" stroke="#374151" stroke-width="2"/>
+<text x="45" y="173" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="bold" fill="#111827">Admin  (DEFAULT_ADMIN_ROLE)</text>
+<text x="45" y="193" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5563">pause · blacklist · limits · rescue · remount</text>
+<rect x="30" y="232" width="290" height="52" rx="12" fill="#f3f4f6" stroke="#374151" stroke-width="2"/>
+<text x="45" y="255" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="bold" fill="#111827">Operator  (OPERATOR_ROLE)</text>
+<text x="45" y="273" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5563">fee configs · soft deposit switch</text>
+<rect x="30" y="304" width="290" height="52" rx="12" fill="#f3f4f6" stroke="#374151" stroke-width="2"/>
+<text x="45" y="327" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="bold" fill="#111827">Deployer  (DEPLOYER_ROLE)</text>
+<text x="45" y="345" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5563">createPortal(underlying, name, symbol, …)</text>
+<rect x="30" y="470" width="290" height="62" rx="12" fill="#e0f2fe" stroke="#0369a1" stroke-width="2"/>
+<text x="45" y="493" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="bold" fill="#111827">User</text>
+<text x="45" y="513" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5563">deposit · depositNative · wrap · withdraw</text>
+<rect x="30" y="640" width="290" height="62" rx="12" fill="#f3f4f6" stroke="#374151" stroke-width="2"/>
+<text x="45" y="663" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="13" font-weight="bold" fill="#111827">Anyone / keeper</text>
+<text x="45" y="683" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5563">release · refund · finalize burn · cancel</text>
+<rect x="390" y="140" width="800" height="165" rx="12" fill="#ffffff" stroke="#1d4ed8" stroke-width="2"/>
+<text x="402" y="162" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#111827">PrivacyPortalFactory  (one per chain · Ownable OWNER of every pToken clone)</text>
+<text x="402" y="182" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">config: inbox · cotiChainId · cotiMotherContract · portal/pToken impls · priceOracle · nativeToken (WETH)</text>
+<text x="402" y="199.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">feeRecipient (immutable) · rescueRecipient · default fees (fixed | bps | max) · factory pause · blacklist</text>
+<text x="402" y="216.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">createPortal → clone portal + clone pToken + one-way registerToken to the mother</text>
+<text x="402" y="233.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">createPortalWithExistingPToken → remount an existing pToken on a fresh portal clone (minter rotates)</text>
+<text x="402" y="250.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">pToken forwarders (owner only): configurePToken · setPTokenMinter · setRequestKillMinAge · killStaleRequest</text>
+<text x="402" y="267.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">views read by portals: isAdmin / isOperator · depositsPaused / withdrawalsPaused · blacklisted · fees · oracle</text>
+<rect x="640" y="320" width="320" height="70" rx="12" fill="#ffffff" stroke="#6b7280" stroke-width="2"/>
+<text x="652" y="342" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#111827">PortalFeeOracle</text>
+<text x="652" y="362" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">admin-set USD prices (1e18 scale) per token</text>
+<text x="652" y="379.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">zero price ⇒ dynamic fee off (fixed fee only)</text>
+<rect x="390" y="410" width="380" height="345" rx="12" fill="#ffffff" stroke="#1d4ed8" stroke-width="2"/>
+<text x="402" y="432" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#111827">PrivacyPortal  (clone per underlying)</text>
+<text x="402" y="452" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">holds the ERC-20 / WETH collateral</text>
+<text x="402" y="469.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">STATE</text>
+<text x="402" y="486.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937"> depositEscrows[mintRequestId]</text>
+<text x="402" y="503.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">   {user, recipient, amount = received, status}</text>
+<text x="402" y="520.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937"> withdrawals[withdrawalId]</text>
+<text x="402" y="537.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">   {user, recipient, amount, transferReqId, status}</text>
+<text x="402" y="554.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937"> pendingBurnAmount · burnInFlight · inFlightTotal</text>
+<text x="402" y="571.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937"> accumulatedPortalFees · limits · fee overrides</text>
+<text x="402" y="588.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937"> per-portal blacklist · paused · isDepositEnabled</text>
+<text x="402" y="605.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">ENTRY  deposit · depositNative · wrap</text>
+<text x="402" y="622.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       requestWithdrawWithPermit</text>
+<text x="402" y="639.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       onPTokenTransferred (pToken only)</text>
+<text x="402" y="656.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       triggerWithdrawalRelease</text>
+<text x="402" y="673.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       cancelFailedWithdrawal · refundFailedDeposit</text>
+<text x="402" y="690.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       adminRefundPendingDeposit (paused)</text>
+<text x="402" y="707.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       burnAccumulatedPTokens · finalizeBatchBurn</text>
+<text x="402" y="724.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       withdrawPortalFees · rescueERC20 · rescueNative</text>
+<rect x="810" y="410" width="380" height="345" rx="12" fill="#ffffff" stroke="#1d4ed8" stroke-width="2"/>
+<text x="822" y="432" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#111827">PodErc20MintableInitializable  (pToken clone)</text>
+<text x="822" y="452" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">minter = portal · owner = factory</text>
+<text x="822" y="469.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">ctUint256 balance cache — NOT authoritative</text>
+<text x="822" y="486.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">STATE</text>
+<text x="822" y="503.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937"> _requests[id]: Pending|Success|Failed|SystemFailed</text>
+<text x="822" y="520.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937"> _requestCallbacks[id] (portal hook on withdraw)</text>
+<text x="822" y="537.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937"> nonces (EIP-712 TransferPermit) · balanceNonces</text>
+<text x="822" y="554.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">ENTRY  mint (minter only)</text>
+<text x="822" y="571.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       transferFromAndCallWithPermit · burn</text>
+<text x="822" y="588.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       transferCallback/transferError (inbox only)</text>
+<text x="822" y="605.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       invalidatePendingRequest (minter)</text>
+<text x="822" y="622.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">       killStaleRequest · configure (owner=factory)</text>
+<text x="822" y="639.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">no MPC here: every move is a message to COTI</text>
+<rect x="390" y="770" width="380" height="90" rx="12" fill="#ffffff" stroke="#6b7280" stroke-width="2"/>
+<text x="402" y="792" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#111827">Underlying ERC-20 / wrapped native</text>
+<text x="402" y="812" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">safeTransferFrom on deposit (balance delta measured)</text>
+<text x="402" y="829.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">safeTransfer / WETH.withdraw on release · rescue</text>
+<rect x="810" y="770" width="380" height="90" rx="12" fill="#ffffff" stroke="#6b7280" stroke-width="2"/>
+<text x="822" y="792" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#111827">Inbox (source chain)</text>
+<text x="822" y="812" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">sendTwoWayMessage / sendOneWayMessage → requestId</text>
+<text x="822" y="829.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">return legs: callback | app error | system error</text>
+<rect x="1290" y="140" width="550" height="110" rx="12" fill="#ffffff" stroke="#6b7280" stroke-width="2"/>
+<text x="1302" y="162" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#111827">MpcCore / MPC precompiles</text>
+<text x="1302" y="182" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">garbled-circuit ops: onBoard · add/sub · gt/mux · offBoard · decrypt</text>
+<text x="1302" y="199.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">balances exist only as garbled / ciphertext values</text>
+<rect x="1290" y="300" width="550" height="405" rx="12" fill="#ffffff" stroke="#b45309" stroke-width="2"/>
+<text x="1302" y="322" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#111827">PodErc20CotiMother  (unified ledger for ALL pTokens)</text>
+<text x="1302" y="342" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">namespace = tokenId(sourceChainId, pToken) — derived ONLY from the</text>
+<text x="1302" y="359.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">authenticated inbox origin (inboxMsgSender), never from arguments</text>
+<text x="1302" y="376.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">registerToken(pToken, name, symbol, decimals) ← allow-listed factory only</text>
+<text x="1302" y="393.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">mintPublic / mint              (portal deposits)</text>
+<text x="1302" y="410.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">transferOwnerPublic            (withdraw: user → portal custody)</text>
+<text x="1302" y="427.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">burnPublic / burn              (portal batch burn)</text>
+<text x="1302" y="444.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">transfer / transferFromAsSpender / approve / syncBalances</text>
+<text x="1302" y="461.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">all gated by onlyRegisteredPTokenMessage → TokenNotRegistered</text>
+<text x="1302" y="478.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">success → respond(new ciphertexts, nonce)   app failure → raise(reason)</text>
+<text x="1302" y="495.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">per-token callback nonce starts at 1 on registration</text>
+<rect x="1290" y="770" width="550" height="90" rx="12" fill="#ffffff" stroke="#6b7280" stroke-width="2"/>
+<text x="1302" y="792" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="15" font-weight="bold" fill="#111827">Inbox (COTI) + miner</text>
+<text x="1302" y="812" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">executes the MpcMethodCall on the mother as (chainId, sender)</text>
+<text x="1302" y="829.0" text-anchor="start" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2937">carries respond / raise back as the return leg</text>
+<line x1="320" y1="330" x2="390" y2="285" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="345" cy="318" r="11" fill="#1f2937"/>
+<text x="345" y="322.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">1</text>
+<line x1="320" y1="181" x2="390" y2="195" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="345" cy="168" r="11" fill="#1f2937"/>
+<text x="345" y="172.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">15</text>
+<line x1="320" y1="258" x2="390" y2="240" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="345" cy="246" r="11" fill="#1f2937"/>
+<text x="345" y="250.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">16</text>
+<line x1="580" y1="305" x2="580" y2="410" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="595" cy="360" r="11" fill="#1f2937"/>
+<text x="595" y="364.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">2</text>
+<line x1="1000" y1="305" x2="1000" y2="410" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="1015" cy="360" r="11" fill="#1f2937"/>
+<text x="1015" y="364.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">2</text>
+<line x1="1190" y1="280" x2="1290" y2="345" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)" stroke-dasharray="7,5"/>
+<circle cx="1240" cy="300" r="11" fill="#1f2937"/>
+<text x="1240" y="304.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">3</text>
+<line x1="320" y1="500" x2="390" y2="500" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="355" cy="488" r="11" fill="#1f2937"/>
+<text x="355" y="492.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">4</text>
+<line x1="320" y1="670" x2="390" y2="660" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="355" cy="652" r="11" fill="#1f2937"/>
+<text x="355" y="656.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">14</text>
+<line x1="470" y1="755" x2="470" y2="770" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<line x1="520" y1="770" x2="520" y2="755" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="495" cy="745" r="11" fill="#1f2937"/>
+<text x="495" y="749.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">5</text>
+<line x1="770" y1="470" x2="810" y2="470" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="790" cy="458" r="11" fill="#1f2937"/>
+<text x="790" y="462.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">6</text>
+<line x1="810" y1="660" x2="770" y2="660" stroke="#b91c1c" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="790" cy="648" r="11" fill="#b91c1c"/>
+<text x="790" y="652.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">13</text>
+<line x1="900" y1="755" x2="900" y2="770" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="885" cy="745" r="11" fill="#1f2937"/>
+<text x="885" y="749.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">7</text>
+<line x1="1000" y1="770" x2="1000" y2="755" stroke="#059669" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="1015" cy="745" r="11" fill="#059669"/>
+<text x="1015" y="749.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">12</text>
+<line x1="700" y1="410" x2="700" y2="390" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="715" cy="400" r="11" fill="#1f2937"/>
+<text x="715" y="404.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">17</text>
+<line x1="1190" y1="800" x2="1290" y2="800" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="1240" cy="788" r="11" fill="#1f2937"/>
+<text x="1240" y="792.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">8</text>
+<line x1="1290" y1="835" x2="1190" y2="835" stroke="#059669" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="1240" cy="850" r="11" fill="#059669"/>
+<text x="1240" y="854.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">11</text>
+<line x1="1450" y1="770" x2="1450" y2="705" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="1435" cy="738" r="11" fill="#1f2937"/>
+<text x="1435" y="742.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">9</text>
+<line x1="1700" y1="705" x2="1700" y2="770" stroke="#059669" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="1715" cy="738" r="11" fill="#059669"/>
+<text x="1715" y="742.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">11</text>
+<line x1="1565" y1="300" x2="1565" y2="250" stroke="#374151" stroke-width="2.2" marker-end="url(#ah)"/>
+<circle cx="1580" cy="278" r="11" fill="#1f2937"/>
+<text x="1580" y="282.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">10</text>
+<rect x="30" y="915" width="880" height="365" rx="12" fill="#fff7ed" stroke="#c2410c" stroke-width="2"/>
+<text x="45" y="940" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="16" font-weight="bold" fill="#7c2d12">Why the deposit escrow exists</text>
+<text x="45" y="962" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407">The mint is ASYNCHRONOUS. On deposit the portal locks the collateral NOW (safeTransferFrom), but the pTokens are</text>
+<text x="45" y="981" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407">created LATER on COTI, and that leg can fail (inbox system error) or never settle. Something must remember who is owed what.</text>
+<text x="45" y="1000" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407"></text>
+<text x="45" y="1019" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407">depositEscrows[mintRequestId] = { user, recipient, amount, status }  is that memory:</text>
+<text x="45" y="1038" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407">  • keyed by the pToken&#x27;s request id → a refund is validated against pToken.requests(id).status (SystemFailed only)</text>
+<text x="45" y="1057" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407">  • amount = MEASURED received (balance delta), so fee-on-transfer tokens refund exactly what arrived</text>
+<text x="45" y="1076" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407">  • user ≠ recipient is allowed: pTokens go to `recipient`, a refund always goes back to `user`</text>
+<text x="45" y="1095" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407">  • status Pending → Refunded makes any refund one-shot (no double refund); admin path needs pause + status ≠ Success</text>
+<text x="45" y="1114" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407"></text>
+<text x="45" y="1133" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407">Without it the portal would hold a pile of collateral with no link to any depositor or to any failed request.</text>
+<text x="45" y="1152" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#431407">Known quirks: never marked terminal on mint SUCCESS (stays Pending forever) · DepositEscrowStatus.Failed is never written.</text>
+<rect x="940" y="915" width="930" height="365" rx="12" fill="#f3f4f6" stroke="#374151" stroke-width="2"/>
+<text x="955" y="940" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="16" font-weight="bold" fill="#111827">Flow legend</text>
+<circle cx="965" cy="958" r="11" fill="#1f2937"/>
+<text x="965" y="962.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">1</text>
+<text x="985" y="962" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Deployer: factory.createPortal(underlying, …) — decimals must match the underlying (≤ 18)</text>
+<circle cx="965" cy="976.5" r="11" fill="#1f2937"/>
+<text x="965" y="981.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">2</text>
+<text x="985" y="980.5" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Factory clones + initializes portal and pToken (pToken.minter = portal, pToken.owner = factory)</text>
+<circle cx="965" cy="995.0" r="11" fill="#1f2937"/>
+<text x="965" y="999.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">3</text>
+<text x="985" y="999.0" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Factory sends a one-way registerToken to the mother — no error selector; the portal is already live (#5)</text>
+<circle cx="965" cy="1013.5" r="11" fill="#1f2937"/>
+<text x="965" y="1018.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">4</text>
+<text x="985" y="1017.5" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">User: deposit / depositNative / wrap (lock collateral, escrow Pending) or requestWithdrawWithPermit (EIP-712)</text>
+<circle cx="965" cy="1032.0" r="11" fill="#1f2937"/>
+<text x="965" y="1036.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">5</text>
+<text x="985" y="1036.0" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Portal ↔ underlying: safeTransferFrom on deposit, safeTransfer / WETH.withdraw on release, rescue when paused</text>
+<circle cx="965" cy="1050.5" r="11" fill="#1f2937"/>
+<text x="965" y="1055.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">6</text>
+<text x="985" y="1054.5" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Portal → pToken: mint(recipient, received) · transferFromAndCallWithPermit(user → portal) · burn(amount)</text>
+<circle cx="965" cy="1069.0" r="11" fill="#1f2937"/>
+<text x="965" y="1073.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">7</text>
+<text x="985" y="1073.0" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">pToken → inbox: sendTwoWayMessage(MpcMethodCall, callback = transferCallback, error = transferError, fee)</text>
+<circle cx="965" cy="1087.5" r="11" fill="#1f2937"/>
+<text x="965" y="1092.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">8</text>
+<text x="985" y="1091.5" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Source inbox → COTI inbox: miner relays the request (nonce-ordered per target chain)</text>
+<circle cx="965" cy="1106.0" r="11" fill="#1f2937"/>
+<text x="965" y="1110.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">9</text>
+<text x="985" y="1110.0" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">COTI inbox → mother: mintPublic / transferOwnerPublic / burnPublic, authenticated as (chainId, pToken)</text>
+<circle cx="965" cy="1124.5" r="11" fill="#1f2937"/>
+<text x="965" y="1129.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">10</text>
+<text x="985" y="1128.5" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Mother ↔ MpcCore: onBoard → compute on garbled values → offBoard; never plaintext</text>
+<circle cx="965" cy="1143.0" r="11" fill="#1f2937"/>
+<text x="965" y="1147.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">11</text>
+<text x="985" y="1147.0" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Return leg: respond(ciphertexts) on success, raise(reason) on app failure; the inbox itself may emit a system error</text>
+<circle cx="965" cy="1161.5" r="11" fill="#1f2937"/>
+<text x="965" y="1166.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">12</text>
+<text x="985" y="1165.5" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Inbox → pToken: transferCallback (Success) or transferError (Failed / SystemFailed); terminal, one-way</text>
+<circle cx="965" cy="1180.0" r="11" fill="#1f2937"/>
+<text x="965" y="1184.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">13</text>
+<text x="985" y="1184.0" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">pToken → portal: low-level call onPTokenTransferred(withdrawalId) → _releaseWithdrawal (withdrawals only; failure swallowed, #1)</text>
+<circle cx="965" cy="1198.5" r="11" fill="#1f2937"/>
+<text x="965" y="1203.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">14</text>
+<text x="985" y="1202.5" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Anyone: triggerWithdrawalRelease · refundFailedDeposit (needs SystemFailed) · finalizeBatchBurn · cancelFailedWithdrawal</text>
+<circle cx="965" cy="1217.0" r="11" fill="#1f2937"/>
+<text x="965" y="1221.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">15</text>
+<text x="985" y="1221.0" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Admin: pause/unpause · blacklist · setLimits · rescue* (paused) · burnAccumulatedPTokens · withdrawPortalFees → feeRecipient · remount</text>
+<circle cx="965" cy="1235.5" r="11" fill="#1f2937"/>
+<text x="965" y="1240.0" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">16</text>
+<text x="985" y="1239.5" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Operator: setDepositFee / setWithdrawFee / factory defaults (fixed | bps ≤ 10% | max) · setIsDepositEnabled</text>
+<circle cx="965" cy="1254.0" r="11" fill="#1f2937"/>
+<text x="965" y="1258.5" text-anchor="middle" font-family="'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="bold" fill="#ffffff">17</text>
+<text x="985" y="1258.0" text-anchor="start" font-family="'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#111827">Portal → oracle (via factory): getLivePrices(native, underlying) for the dynamic fee floor; zero rate ⇒ fixed fee</text>
+</svg>
