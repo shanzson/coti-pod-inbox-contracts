@@ -1,0 +1,809 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/proxy/Clones.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+
+import "@coti-io/coti-contracts/contracts/pod/IInbox.sol";
+import "@coti-io/coti-contracts/contracts/pod/token/perc20/IPodERC20.sol";
+import "./PodErc20MintableFixed.sol";
+import "./PodErc20MintableInitializableFixed.sol";
+import "./PrivacyPortalFixed.sol";
+import "@coti-io/coti-contracts/contracts/pod/token/perc20/cotiside/PodErc20CotiMother.sol";
+import "@coti-io/coti-contracts/contracts/pod/privacy/IPrivacyPortal.sol";
+import "@coti-io/coti-contracts/contracts/pod/privacy/IPrivacyPortalFactory.sol";
+import "@coti-io/coti-contracts/contracts/pod/privacy/IPrivacyPortalFactoryAdmin.sol";
+import "@coti-io/coti-contracts/contracts/pod/privacy/IPodPriceOracle.sol";
+import "@coti-io/coti-contracts/contracts/pod/privacy/PrivacyPortalFeeLib.sol";
+
+/// @title PrivacyPortalFactory
+/// @notice Deploys one-shot minimal-clone portals and pTokens for public ERC20 collateral.
+/// @dev Governance uses OpenZeppelin {AccessControl}: {DEFAULT_ADMIN_ROLE} for admin actions,
+///      {OPERATOR_ROLE} for factory default fees and portal fee / soft-deposit controls. Manage roles via
+///      {grantRole} and {revokeRole}. Portals have no local operator role — they call {isOperator}.
+///      Admin {pause}/{unpause} pauses deposits and withdrawals on every portal from this factory.
+///      Uses plain {AccessControl} (not Enumerable) so bytecode stays Paris-compatible for COTI.
+///      Portal clones use {IPrivacyPortalFactory}; ops/tooling should use {IPrivacyPortalFactoryAdmin}.
+contract PrivacyPortalFactoryFixed is IPrivacyPortalFactory, IPrivacyPortalFactoryAdmin, AccessControl, Pausable {
+    using PrivacyPortalFeeLib for bytes32;
+
+    /// @notice Operator role for routine fee-parameter updates (mirrors Privacy Bridge).
+    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    /// @notice Maximum supported token decimals; bounds `10 ** decimals` in {PrivacyPortalFeeLib}.
+    uint8 public constant MAX_DECIMALS = 18;
+
+    /// @dev Primary admin for {owner()} tooling; kept in sync with {DEFAULT_ADMIN_ROLE} grants/revokes.
+    address private _owner;
+    /// @dev Count of {DEFAULT_ADMIN_ROLE} holders (for last-admin protection).
+    uint256 private _adminCount;
+    /// @notice Source-chain inbox used by pToken clones and registration messages.
+    address public inbox;
+    /// @notice COTI chain id used by pToken clones for remote MPC execution.
+    uint256 public cotiChainId;
+    /// @notice Unified COTI-side pToken ledger all clones talk to.
+    address public cotiMotherContract;
+    /// @notice Clone implementation for source-chain pTokens.
+    address public podTokenImplementation;
+    /// @notice Clone implementation for portals.
+    address public portalImplementation;
+    /// @notice Recipient of swept portal protocol fees from all portals created here (fixed at deploy; no setter).
+    address public immutable feeRecipient;
+    /// @notice Catastrophe rescue destination for all portals created here (pause + owner rescue).
+    address public rescueRecipient;
+    /// @notice Wrapped native token on this chain (WETH/WAVAX) for portal gas fee pricing.
+    address public immutable nativeToken;
+
+    /// @notice Optional USD oracle for dynamic portal fees; zero disables dynamic pricing.
+    IPodPriceOracle public priceOracle;
+    /// @notice Factory default packed deposit fee config.
+    bytes32 public defaultDepositFeePacked;
+    /// @notice Factory default packed withdraw fee config.
+    bytes32 public defaultWithdrawFeePacked;
+    /// FIX #7: highest fixed fee an OPERATOR_ROLE holder may configure (portal overrides and factory defaults).
+    uint256 public maxOperatorFixedFee = 0.1 ether;
+
+    /// @notice Addresses allowed to deploy portal/pToken pairs ({DEPLOYER_ROLE}).
+    bytes32 public constant DEPLOYER_ROLE = keccak256("DEPLOYER_ROLE");
+    /// @notice Portal address by underlying ERC20.
+    mapping(address => address) public portalForUnderlying;
+    /// @notice Source-chain pToken address by underlying ERC20.
+    mapping(address => address) public pTokenForUnderlying;
+    /// @notice Portal address by source-chain pToken.
+    mapping(address => address) public portalForPToken;
+    /// @notice Addresses blocked from deposits and withdrawals on factory-created portals.
+    mapping(address => bool) public blacklisted;
+
+    /// @notice {DEPLOYER_ROLE} granted or revoked.
+    event DeployerUpdated(address indexed deployer, bool allowed);
+    /// @notice Address added to the factory blacklist.
+    event Blacklisted(address indexed account, address indexed by);
+    /// @notice Address removed from the factory blacklist.
+    event UnBlacklisted(address indexed account, address indexed by);
+    /// @notice Factory admin rotated inbox / COTI peer on a deployed pToken.
+    event PTokenConfigured(address indexed pToken, address indexed inbox, address indexed cotiSideContract);
+    /// @notice A new portal and source-chain pToken clone pair was deployed.
+    event PortalCreated(
+        address indexed underlying,
+        address indexed portal,
+        address indexed pToken,
+        address cotiMotherContract,
+        uint8 decimals
+    );
+    /// @notice One-way registration message submitted to the COTI mother contract.
+    event TokenRegistrationRequested(address indexed pToken, bytes32 indexed requestId);
+    /// @notice Factory default portal fee config updated.
+    event DefaultPortalFeeUpdated(bool indexed isDeposit, bytes32 packedConfig);
+    /// @notice Portal fee oracle upgraded or disabled.
+    event PriceOracleUpdated(address indexed previousOracle, address indexed newOracle);
+    /// @notice Inbox / COTI mother routing updated for newly created portals and registration messages.
+    event RoutingUpdated(address indexed inbox, uint256 cotiChainId, address indexed cotiMotherContract);
+    /// @notice Rescue recipient updated for paused portal rescue paths.
+    event RescueRecipientUpdated(address indexed previousRecipient, address indexed newRecipient);
+    /// @notice Portal clone implementation rotated for future clones / remounts.
+    event PortalImplementationUpdated(address indexed previousImplementation, address indexed newImplementation);
+    /// @notice pToken clone implementation rotated for future {createPortal} pairs.
+    event PodTokenImplementationUpdated(address indexed previousImplementation, address indexed newImplementation);
+    /// @notice An existing pToken was remounted onto a new portal clone on this factory.
+    event PortalReplaced(
+        address indexed underlying, address indexed oldPortal, address indexed newPortal, address pToken
+    );
+
+    /// @notice Caller is not an allowlisted deployer.
+    error OnlyDeployer(address caller);
+    /// @notice A required address was zero.
+    error InvalidAddress();
+    /// @notice A portal already exists for the underlying token.
+    error PortalAlreadyExists(address underlying, address portal);
+    /// @notice pToken is not registered to a portal created by this factory.
+    error UnknownPToken(address pToken);
+    /// @notice Caller/factory does not own the pToken Ownable slot required for admin attach.
+    error PTokenNotOwnedByFactory(address pToken, address owner);
+    /// @notice pToken is already paired to a portal on this factory (wrong underlying for remount).
+    error PTokenAlreadyPaired(address pToken, address portal);
+    /// @notice Remount requested for an underlying that is paired to a different pToken.
+    error UnderlyingPTokenMismatch(address underlying, address expectedPToken, address providedPToken);
+    /// @notice Remount requested while the old portal is not paused (deposits/withdrawals still live).
+    error OldPortalNotPaused(address portal);
+    /// @notice Remount of a native-wrapped portal must keep {nativeWrappedUnderlying} true (no ERC20-WETH mode).
+    error NativePortalRequiresNative(address oldPortal);
+    /// @notice Remount changed native-wrap mode relative to the old portal.
+    error NativeWrapMismatch(address oldPortal, bool oldNative, bool newNative);
+    /// @notice Oracle is not configured.
+    error OracleNotConfigured();
+    /// @notice No {DEFAULT_ADMIN_ROLE} holder is configured.
+    error AdminNotConfigured();
+    /// @notice Cannot revoke or renounce the last {DEFAULT_ADMIN_ROLE}.
+    error CannotRevokeLastAdmin();
+    /// @notice Primary {owner()} must {transferPrimaryOwner} before that account loses admin.
+    error PrimaryOwnerMustTransferFirst(address primaryOwner);
+    /// @notice New primary owner must already hold {DEFAULT_ADMIN_ROLE}.
+    error PrimaryOwnerNotAdmin(address account);
+    /// @notice Requested `decimals` did not match `IERC20Metadata(underlying).decimals()`.
+    error DecimalsMismatch(uint8 expected, uint8 provided);
+    /// @notice Requested `decimals` exceeded {MAX_DECIMALS}.
+    error DecimalsExceedsMaximum(uint8 provided, uint8 max);
+    /// @notice `nativeWrappedUnderlying` does not match whether `underlying == nativeToken`.
+    error NativeUnderlyingMismatch(address underlying, address nativeToken_, bool nativeWrapped);
+    /// @notice Implementation or oracle address has no contract code.
+    error ImplementationHasNoCode(address impl);
+    /// FIX #7: operator-set fixed fee exceeds {maxOperatorFixedFee}.
+    error FixedFeeAboveCeiling(uint256 ceiling, uint256 fixedFee);
+    /// FIX #4: the pToken's current minter is a live portal (on any factory) that has not been retired.
+    error OldPortalNotRetired(address portal);
+    /// FIX #4: portal is not bound to this factory.
+    error PortalNotFromThisFactory(address portal);
+
+    /// @notice Restrict a function to an account with {DEPLOYER_ROLE}.
+    modifier onlyDeployer() {
+        if (!hasRole(DEPLOYER_ROLE, msg.sender)) {
+            revert OnlyDeployer(msg.sender);
+        }
+        _;
+    }
+
+    /// @param initialOwner Initial {DEFAULT_ADMIN_ROLE} holder and deployer.
+    /// @param inbox_ Source-chain inbox used by pToken clones.
+    /// @param cotiChainId_ COTI chain id used by pToken clones.
+    /// @param cotiMotherContract_ Unified COTI-side pToken ledger.
+    /// @param podTokenImplementation_ Clone implementation for source-chain pTokens.
+    /// @param portalImplementation_ Clone implementation for portals.
+    /// @param feeRecipient_ Recipient of swept portal protocol fees (immutable for factory lifetime).
+    /// @param rescueRecipient_ Catastrophe rescue destination for portals from this factory.
+    /// @param nativeToken_ Wrapped native token (WETH/WAVAX) for dynamic fee gas pricing.
+    /// @param priceOracle_ Optional USD oracle; zero for min-fee-only deployments.
+    /// @param defaultDepositFixedFee_ Default deposit fee floor in native wei.
+    /// @param defaultDepositPercentageBps_ Default deposit percentage (FEE_DIVISOR scale).
+    /// @param defaultDepositMaxFee_ Default deposit fee cap in native wei.
+    /// @param defaultWithdrawFixedFee_ Default withdraw fee floor in native wei.
+    /// @param defaultWithdrawPercentageBps_ Default withdraw percentage (FEE_DIVISOR scale).
+    /// @param defaultWithdrawMaxFee_ Default withdraw fee cap in native wei.
+    constructor(
+        address initialOwner,
+        address inbox_,
+        uint256 cotiChainId_,
+        address cotiMotherContract_,
+        address podTokenImplementation_,
+        address portalImplementation_,
+        address feeRecipient_,
+        address rescueRecipient_,
+        address nativeToken_,
+        address priceOracle_,
+        uint256 defaultDepositFixedFee_,
+        uint256 defaultDepositPercentageBps_,
+        uint256 defaultDepositMaxFee_,
+        uint256 defaultWithdrawFixedFee_,
+        uint256 defaultWithdrawPercentageBps_,
+        uint256 defaultWithdrawMaxFee_
+    ) {
+        if (
+            initialOwner == address(0) || inbox_ == address(0) || cotiChainId_ == 0
+                || cotiMotherContract_ == address(0) || podTokenImplementation_ == address(0)
+                || portalImplementation_ == address(0) || feeRecipient_ == address(0)
+                || rescueRecipient_ == address(0) || nativeToken_ == address(0)
+        ) {
+            revert InvalidAddress();
+        }
+        inbox = inbox_;
+        cotiChainId = cotiChainId_;
+        cotiMotherContract = cotiMotherContract_;
+        podTokenImplementation = podTokenImplementation_;
+        portalImplementation = portalImplementation_;
+        feeRecipient = feeRecipient_;
+        rescueRecipient = rescueRecipient_;
+        nativeToken = nativeToken_;
+        priceOracle = IPodPriceOracle(priceOracle_);
+        defaultDepositFeePacked = PrivacyPortalFeeLib.packFeeConfig(
+            defaultDepositFixedFee_, defaultDepositPercentageBps_, defaultDepositMaxFee_
+        );
+        defaultWithdrawFeePacked = PrivacyPortalFeeLib.packFeeConfig(
+            defaultWithdrawFixedFee_, defaultWithdrawPercentageBps_, defaultWithdrawMaxFee_
+        );
+        _grantRole(DEPLOYER_ROLE, initialOwner);
+        emit DeployerUpdated(initialOwner, true);
+        _grantRole(DEFAULT_ADMIN_ROLE, initialOwner);
+        _grantRole(OPERATOR_ROLE, initialOwner);
+        emit DefaultPortalFeeUpdated(true, defaultDepositFeePacked);
+        emit DefaultPortalFeeUpdated(false, defaultWithdrawFeePacked);
+        if (priceOracle_ != address(0)) {
+            emit PriceOracleUpdated(address(0), priceOracle_);
+        }
+    }
+
+    /// @notice Primary factory admin for tooling (`Ownable.owner()`-shaped).
+    /// @dev Tracks the first granted {DEFAULT_ADMIN_ROLE}; clears when that account is revoked.
+    function owner() external view returns (address) {
+        if (_owner == address(0) || !hasRole(DEFAULT_ADMIN_ROLE, _owner)) {
+            revert AdminNotConfigured();
+        }
+        return _owner;
+    }
+
+    /// @notice Whether `account` holds {DEFAULT_ADMIN_ROLE}.
+    function isAdmin(address account) external view returns (bool) {
+        return hasRole(DEFAULT_ADMIN_ROLE, account);
+    }
+
+    /// @notice Transfer the primary {owner()} pointer to another existing admin.
+    /// @dev Does not grant/revoke roles; `newOwner` must already hold {DEFAULT_ADMIN_ROLE}.
+    function transferPrimaryOwner(address newOwner) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newOwner == address(0) || !hasRole(DEFAULT_ADMIN_ROLE, newOwner)) {
+            revert PrimaryOwnerNotAdmin(newOwner);
+        }
+        _owner = newOwner;
+    }
+
+    function _grantRole(bytes32 role, address account) internal override returns (bool) {
+        bool granted = super._grantRole(role, account);
+        if (granted && role == DEFAULT_ADMIN_ROLE) {
+            unchecked {
+                ++_adminCount;
+            }
+            if (_owner == address(0)) {
+                _owner = account;
+            }
+        }
+        return granted;
+    }
+
+    function _revokeRole(bytes32 role, address account) internal override returns (bool) {
+        if (role == DEFAULT_ADMIN_ROLE) {
+            if (_adminCount <= 1) {
+                revert CannotRevokeLastAdmin();
+            }
+            if (account == _owner) {
+                revert PrimaryOwnerMustTransferFirst(_owner);
+            }
+        }
+        bool revoked = super._revokeRole(role, account);
+        if (revoked && role == DEFAULT_ADMIN_ROLE) {
+            unchecked {
+                --_adminCount;
+            }
+        }
+        return revoked;
+    }
+
+    /// @notice Whether `account` holds {OPERATOR_ROLE}.
+    function isOperator(address account) external view returns (bool) {
+        return hasRole(OPERATOR_ROLE, account);
+    }
+
+    /// @notice Add an address to the factory blacklist, blocking deposits and withdrawals on all portals here.
+    function addToBlacklist(address account) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (account == address(0)) {
+            revert InvalidAddress();
+        }
+        blacklisted[account] = true;
+        emit Blacklisted(account, msg.sender);
+    }
+
+    /// @notice Remove an address from the factory blacklist.
+    function removeFromBlacklist(address account) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (account == address(0)) {
+            revert InvalidAddress();
+        }
+        blacklisted[account] = false;
+        emit UnBlacklisted(account, msg.sender);
+    }
+
+    /// @notice Whether `account` holds {DEPLOYER_ROLE}.
+    function isDeployer(address account) external view returns (bool) {
+        return hasRole(DEPLOYER_ROLE, account);
+    }
+
+    /// @notice Compatibility alias for {isDeployer} (historical `deployers` mapping getter).
+    function deployers(address account) external view returns (bool) {
+        return hasRole(DEPLOYER_ROLE, account);
+    }
+
+    /// @notice Add or remove a portal deployer ({DEPLOYER_ROLE}).
+    function setDeployer(address deployer, bool allowed) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (deployer == address(0)) {
+            revert InvalidAddress();
+        }
+        if (allowed) {
+            _grantRole(DEPLOYER_ROLE, deployer);
+        } else {
+            _revokeRole(DEPLOYER_ROLE, deployer);
+        }
+        emit DeployerUpdated(deployer, allowed);
+    }
+
+    /// @notice Admin: rotate the portal clone implementation used by {createPortal} / remounts.
+    function setPortalImplementation(address portalImplementation_)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (portalImplementation_ == address(0)) {
+            revert InvalidAddress();
+        }
+        if (portalImplementation_.code.length == 0) {
+            revert ImplementationHasNoCode(portalImplementation_);
+        }
+        address previous = portalImplementation;
+        portalImplementation = portalImplementation_;
+        emit PortalImplementationUpdated(previous, portalImplementation_);
+    }
+
+    /// @notice Admin: rotate the pToken clone implementation used by future {createPortal} pairs.
+    /// @dev Does not remount existing pTokens; a new pToken always requires a new portal via {createPortal}.
+    function setPodTokenImplementation(address podTokenImplementation_)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (podTokenImplementation_ == address(0)) {
+            revert InvalidAddress();
+        }
+        if (podTokenImplementation_.code.length == 0) {
+            revert ImplementationHasNoCode(podTokenImplementation_);
+        }
+        address previous = podTokenImplementation;
+        podTokenImplementation = podTokenImplementation_;
+        emit PodTokenImplementationUpdated(previous, podTokenImplementation_);
+    }
+
+    /// @notice Admin: rotate inbox, COTI chain id, and mother ledger used for new portals / registration.
+    /// @dev Existing pToken clones keep their peer until {configurePToken} (factory is their Ownable owner).
+    function configureRouting(address inbox_, uint256 cotiChainId_, address cotiMotherContract_)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (inbox_ == address(0) || cotiChainId_ == 0 || cotiMotherContract_ == address(0)) {
+            revert InvalidAddress();
+        }
+        inbox = inbox_;
+        cotiChainId = cotiChainId_;
+        cotiMotherContract = cotiMotherContract_;
+        emit RoutingUpdated(inbox_, cotiChainId_, cotiMotherContract_);
+    }
+
+    /// @notice Admin: rotate inbox / COTI peer on an existing factory-deployed pToken clone ({cotiChainId} is immutable on the token).
+    function configurePToken(address pToken_, address inbox_, address cotiSideContract_)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _requireFactoryOwnedPToken(pToken_);
+        IPodERC20(pToken_).configure(inbox_, cotiSideContract_);
+        emit PTokenConfigured(pToken_, inbox_, cotiSideContract_);
+    }
+
+    /// @notice Admin: transfer Ownable of a factory-deployed pToken (e.g. hand off after launch).
+    function transferPTokenOwnership(address pToken_, address newOwner_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireFactoryOwnedPToken(pToken_);
+        if (newOwner_ == address(0)) {
+            revert InvalidAddress();
+        }
+        Ownable(pToken_).transferOwnership(newOwner_);
+    }
+
+    /// @notice Admin: rotate the authorized minter on a factory-owned pToken (factory is Ownable owner).
+    function setPTokenMinter(address pToken_, address newMinter_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireFactoryOwnedPToken(pToken_);
+        PodErc20MintableFixed(payable(pToken_)).setMinter(newMinter_);
+    }
+
+    /// @notice Admin: set {IPodERC20.requestKillMinAge} on a factory-owned pToken.
+    function setPTokenRequestKillMinAge(address pToken_, uint64 seconds_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireFactoryOwnedPToken(pToken_);
+        IPodERC20(pToken_).setRequestKillMinAge(seconds_);
+    }
+
+    /// @notice Admin: terminalize a stale Pending request on a factory-owned pToken via {IPodERC20.killStaleRequest}.
+    function killPTokenStaleRequest(address pToken_, bytes32 requestId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireFactoryOwnedPToken(pToken_);
+        IPodERC20(pToken_).killStaleRequest(requestId);
+    }
+
+    /// @dev pToken must be factory-mapped and still Ownable-owned by this factory (after handoff, remount on the new factory).
+    function _requireFactoryOwnedPToken(address pToken_) private view {
+        if (portalForPToken[pToken_] == address(0)) {
+            revert UnknownPToken(pToken_);
+        }
+        address tokenOwner = Ownable(pToken_).owner();
+        if (tokenOwner != address(this)) {
+            revert PTokenNotOwnedByFactory(pToken_, tokenOwner);
+        }
+    }
+
+    /// FIX #3: owner-authorized invalidation of a stuck Pending request on a factory-owned pToken (used before
+    ///         {PrivacyPortal.adminRefundPendingDeposit} on a portal that is no longer the minter).
+    function invalidatePTokenPendingRequest(address pToken_, bytes32 requestId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireFactoryOwnedPToken(pToken_);
+        IPodERC20(pToken_).invalidatePendingRequest(requestId);
+    }
+
+    /// FIX #4: retire a paused portal of THIS factory (disable deposits, detach) without cloning a replacement —
+    ///         the step the old factory's admin must perform before handing the pToken to another factory.
+    function retirePortal(address portal) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (PrivacyPortalFixed(payable(portal)).factory() != address(this)) {
+            revert PortalNotFromThisFactory(portal);
+        }
+        if (!IPrivacyPortal(portal).paused()) {
+            revert OldPortalNotPaused(portal);
+        }
+        IPrivacyPortal(portal).retireDepositsForUpgrade();
+    }
+
+    /// FIX #7: admin-set ceiling for operator fixed fees.
+    function setMaxOperatorFixedFee(uint256 ceiling) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        maxOperatorFixedFee = ceiling;
+    }
+
+    function _checkOperatorFixedFee(uint256 fixedFee) private view {
+        if (fixedFee > maxOperatorFixedFee && !hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
+            revert FixedFeeAboveCeiling(maxOperatorFixedFee, fixedFee);
+        }
+    }
+
+    /// @notice Admin: rotate the catastrophe rescue destination used by all portals from this factory.
+    function setRescueRecipient(address rescueRecipient_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (rescueRecipient_ == address(0)) {
+            revert InvalidAddress();
+        }
+        address previous = rescueRecipient;
+        rescueRecipient = rescueRecipient_;
+        emit RescueRecipientUpdated(previous, rescueRecipient_);
+    }
+
+    /// @notice Pause deposits and withdrawals on every portal from this factory.
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    /// @notice Unpause factory-wide deposit and withdrawal entry points.
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
+
+    /// @inheritdoc IPrivacyPortalPauseController
+    function depositsPaused() external view returns (bool) {
+        return paused();
+    }
+
+    /// @inheritdoc IPrivacyPortalPauseController
+    function withdrawalsPaused() external view returns (bool) {
+        return paused();
+    }
+
+    /// @notice Update factory default deposit fee config.
+    function setDefaultDepositFee(uint256 fixedFee, uint256 percentageBps, uint256 maxFee)
+        external
+        onlyRole(OPERATOR_ROLE)
+    {
+        _checkOperatorFixedFee(fixedFee); // FIX #7
+        bytes32 packed = PrivacyPortalFeeLib.packFeeConfig(fixedFee, percentageBps, maxFee);
+        defaultDepositFeePacked = packed;
+        emit DefaultPortalFeeUpdated(true, packed);
+    }
+
+    /// @notice Update factory default withdraw fee config.
+    function setDefaultWithdrawFee(uint256 fixedFee, uint256 percentageBps, uint256 maxFee)
+        external
+        onlyRole(OPERATOR_ROLE)
+    {
+        _checkOperatorFixedFee(fixedFee); // FIX #7
+        bytes32 packed = PrivacyPortalFeeLib.packFeeConfig(fixedFee, percentageBps, maxFee);
+        defaultWithdrawFeePacked = packed;
+        emit DefaultPortalFeeUpdated(false, packed);
+    }
+
+    /// @notice Upgrade or disable the portal fee oracle.
+    function setPriceOracle(address newOracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newOracle != address(0) && newOracle.code.length == 0) {
+            revert ImplementationHasNoCode(newOracle);
+        }
+        address previous = address(priceOracle);
+        priceOracle = IPodPriceOracle(newOracle);
+        emit PriceOracleUpdated(previous, newOracle);
+    }
+
+    /// @inheritdoc IPrivacyPortalFactory
+    function estimateDepositPortalFee(address underlying, uint256 amount, uint8 decimals)
+        external
+        view
+        returns (uint256 fee, bool usedDynamicPricing)
+    {
+        return _estimatePortalFee(defaultDepositFeePacked, underlying, amount, decimals);
+    }
+
+    /// @inheritdoc IPrivacyPortalFactory
+    function estimateWithdrawPortalFee(address underlying, uint256 amount, uint8 decimals)
+        external
+        view
+        returns (uint256 fee, bool usedDynamicPricing)
+    {
+        return _estimatePortalFee(defaultWithdrawFeePacked, underlying, amount, decimals);
+    }
+
+    /// @inheritdoc IPrivacyPortalFactory
+    function getDepositPortalFeeFloor(address underlying, uint256 amount, uint8 decimals)
+        external
+        view
+        returns (uint256 floor, uint128 maxFee)
+    {
+        return _portalFeeFloor(defaultDepositFeePacked, underlying, amount, decimals);
+    }
+
+    /// @inheritdoc IPrivacyPortalFactory
+    function getWithdrawPortalFeeFloor(address underlying, uint256 amount, uint8 decimals)
+        external
+        view
+        returns (uint256 floor, uint128 maxFee)
+    {
+        return _portalFeeFloor(defaultWithdrawFeePacked, underlying, amount, decimals);
+    }
+
+    /// @inheritdoc IPrivacyPortalFactory
+    function getFeeConfig(bool isDeposit) external view returns (PortalFeeConfig memory config) {
+        return PrivacyPortalFeeLib.decodeFeeConfig(
+            isDeposit ? defaultDepositFeePacked : defaultWithdrawFeePacked
+        );
+    }
+
+    /// @inheritdoc IPrivacyPortalFactory
+    function decodeFeeConfig(bytes32 packed) external pure returns (PortalFeeConfig memory config) {
+        return PrivacyPortalFeeLib.decodeFeeConfig(packed);
+    }
+
+    /// @notice Deploy a portal and pToken clone for an underlying token and register on the COTI mother ledger.
+    /// @dev Mother registration is a **one-way, error-handler-less** inbox message (see
+    ///      {_requestMotherRegistration}): this function returns as soon as the message is *submitted*, not
+    ///      once the mother has actually registered the pToken. Until `PodErc20CotiMother.registerToken`
+    ///      lands, every mint/transfer routed through the mother for this pToken hits
+    ///      `onlyRegisteredPTokenMessage` and reverts (`TokenNotRegistered`), which — because inbox execution
+    ///      reverts are retryable — leaves each deposit's mint stuck `Pending` rather than failing cleanly
+    ///      (see PP-02/PP-14). **Operational guidance:** the caller should treat the returned `portal` as not
+    ///      yet live — leave (or immediately set) {PrivacyPortal.isDepositEnabled} to `false` right after this
+    ///      call and only flip it on once registration is externally confirmed (e.g. observing the mother's
+    ///      registration event/state on COTI); do not accept deposits on the assumption that this call alone
+    ///      means the portal is ready. Withdrawals are unaffected until a user actually holds pTokens, which
+    ///      cannot happen before a mint succeeds.
+    function createPortal(
+        address underlying,
+        string calldata name,
+        string calldata symbol,
+        uint8 decimals,
+        bool nativeWrappedUnderlying
+    ) external payable onlyDeployer returns (address portal, address pToken) {
+        if (underlying == address(0)) {
+            revert InvalidAddress();
+        }
+        if (portalForUnderlying[underlying] != address(0)) {
+            revert PortalAlreadyExists(underlying, portalForUnderlying[underlying]);
+        }
+        if (decimals > MAX_DECIMALS) {
+            revert DecimalsExceedsMaximum(decimals, MAX_DECIMALS);
+        }
+        uint8 underlyingDecimals = IERC20Metadata(underlying).decimals();
+        if (underlyingDecimals != decimals) {
+            revert DecimalsMismatch(underlyingDecimals, decimals);
+        }
+        if (nativeWrappedUnderlying != (underlying == nativeToken)) {
+            revert NativeUnderlyingMismatch(underlying, nativeToken, nativeWrappedUnderlying);
+        }
+
+        portal = Clones.clone(portalImplementation);
+        pToken = Clones.clone(podTokenImplementation);
+
+        // Factory retains Ownable on the pToken so admins can operate via forwarders:
+        // {configurePToken}, {setPTokenMinter}, {setPTokenRequestKillMinAge}, {killPTokenStaleRequest},
+        // {transferPTokenOwnership}. Portal minter is the portal; portal admin is factory
+        // {DEFAULT_ADMIN_ROLE} (no local Ownable — call the portal directly).
+        PodErc20MintableInitializableFixed(payable(pToken)).initialize(
+            portal,
+            address(this),
+            cotiChainId,
+            inbox,
+            cotiMotherContract,
+            name,
+            symbol,
+            decimals
+        );
+        IPrivacyPortal(portal).initialize(
+            underlying, pToken, decimals, nativeWrappedUnderlying, address(this)
+        );
+        // FIX #5: the mother registration below is one-way and un-acknowledged; start closed and let the admin
+        //         unpause once registration is observed on COTI (deposits before that would stick Pending).
+        IPrivacyPortal(portal).pauseByFactory();
+
+        portalForUnderlying[underlying] = portal;
+        pTokenForUnderlying[underlying] = pToken;
+        portalForPToken[pToken] = portal;
+
+        bytes32 requestId = _requestMotherRegistration(pToken, name, symbol, decimals);
+
+        emit PortalCreated(underlying, portal, pToken, cotiMotherContract, decimals);
+        emit TokenRegistrationRequested(pToken, requestId);
+    }
+
+    /// @notice Admin: deploy a portal clone paired to an existing factory-owned pToken (no mother re-registration).
+    /// @dev Create when unmapped; remount when the same pToken is already paired.
+    ///      Remount requires the old portal to be {IPrivacyPortal.paused} (no deposits/withdrawals). Soft ops model:
+    ///      admin then migrates underlying from old → new (e.g. rescue while paused) and only then unpauses the new portal.
+    ///      Does not clone a new pToken and does not call {_requestMotherRegistration}.
+    /// @param underlying Public ERC20 collateral for the new portal.
+    /// @param existingPToken Source-chain pToken clone already registered on the COTI mother.
+    /// @param nativeWrappedUnderlying Whether the portal wraps/unwraps native coin via WETH/WAVAX.
+    /// @return portal Address of the newly cloned portal (created paused; admin unpauses after migration).
+    function createPortalWithExistingPToken(
+        address underlying,
+        address existingPToken,
+        bool nativeWrappedUnderlying
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) returns (address portal) {
+        if (underlying == address(0) || existingPToken == address(0)) {
+            revert InvalidAddress();
+        }
+
+        address pTokenOwner = Ownable(existingPToken).owner();
+        if (pTokenOwner != address(this)) {
+            revert PTokenNotOwnedByFactory(existingPToken, pTokenOwner);
+        }
+
+        address existingPortalForUnderlying = portalForUnderlying[underlying];
+        address existingPortalForPToken = portalForPToken[existingPToken];
+        address mappedPToken = pTokenForUnderlying[underlying];
+
+        if (existingPortalForUnderlying != address(0) || existingPortalForPToken != address(0)) {
+            if (mappedPToken != existingPToken) {
+                revert UnderlyingPTokenMismatch(underlying, mappedPToken, existingPToken);
+            }
+            if (existingPortalForPToken == address(0) || existingPortalForUnderlying == address(0)) {
+                revert PTokenAlreadyPaired(existingPToken, existingPortalForPToken);
+            }
+            if (existingPortalForPToken != existingPortalForUnderlying) {
+                revert PTokenAlreadyPaired(existingPToken, existingPortalForPToken);
+            }
+        } else if (mappedPToken != address(0) && mappedPToken != existingPToken) {
+            revert UnderlyingPTokenMismatch(underlying, mappedPToken, existingPToken);
+        }
+
+        uint8 decimals = IERC20Metadata(existingPToken).decimals();
+        if (decimals > MAX_DECIMALS) {
+            revert DecimalsExceedsMaximum(decimals, MAX_DECIMALS);
+        }
+        uint8 underlyingDecimals = IERC20Metadata(underlying).decimals();
+        if (underlyingDecimals != decimals) {
+            revert DecimalsMismatch(underlyingDecimals, decimals);
+        }
+        if (nativeWrappedUnderlying != (underlying == nativeToken)) {
+            revert NativeUnderlyingMismatch(underlying, nativeToken, nativeWrappedUnderlying);
+        }
+
+        address oldPortal = existingPortalForPToken;
+        if (oldPortal != address(0)) {
+            if (!IPrivacyPortal(oldPortal).paused()) {
+                revert OldPortalNotPaused(oldPortal);
+            }
+            bool oldNative = IPrivacyPortal(oldPortal).nativeWrappedUnderlying();
+            // Native portals must stay native-coin wrap/unwrap — remounting as plain WETH/WAVAX ERC20 is not allowed.
+            // Non-native portals must not flip into native wrap mode on remount either.
+            if (oldNative != nativeWrappedUnderlying) {
+                if (oldNative) {
+                    revert NativePortalRequiresNative(oldPortal);
+                }
+                revert NativeWrapMismatch(oldPortal, oldNative, nativeWrappedUnderlying);
+            }
+            IPrivacyPortal(oldPortal).retireDepositsForUpgrade();
+        }
+
+        // FIX #4: authority is read from the token, not from this factory's mapping. A pToken whose current minter
+        //         is a live portal on ANOTHER factory may only be attached once that portal is paused and retired
+        //         (its own factory's admin does that via retirePortal) and the native-wrap mode matches.
+        address prevMinter = PodErc20MintableFixed(payable(existingPToken)).minter();
+        if (oldPortal == address(0) && prevMinter != address(0) && prevMinter.code.length != 0) {
+            if (!IPrivacyPortal(prevMinter).paused()) {
+                revert OldPortalNotPaused(prevMinter);
+            }
+            if (PrivacyPortalFixed(payable(prevMinter)).factory() != address(0)) {
+                revert OldPortalNotRetired(prevMinter);
+            }
+            bool prevNative = IPrivacyPortal(prevMinter).nativeWrappedUnderlying();
+            if (prevNative != nativeWrappedUnderlying) {
+                revert NativeWrapMismatch(prevMinter, prevNative, nativeWrappedUnderlying);
+            }
+        }
+
+        portal = Clones.clone(portalImplementation);
+        IPrivacyPortal(portal).initialize(
+            underlying, existingPToken, decimals, nativeWrappedUnderlying, address(this)
+        );
+        // Soft close: new clone stays paused until admin migrates funds and unpauses.
+        IPrivacyPortal(portal).pauseByFactory();
+        PodErc20MintableFixed(payable(existingPToken)).setMinter(portal);
+
+        portalForUnderlying[underlying] = portal;
+        pTokenForUnderlying[underlying] = existingPToken;
+        portalForPToken[existingPToken] = portal;
+
+        emit PortalCreated(underlying, portal, existingPToken, cotiMotherContract, decimals);
+        if (oldPortal != address(0)) {
+            emit PortalReplaced(underlying, oldPortal, portal, existingPToken);
+        }
+    }
+
+    function _estimatePortalFee(
+        bytes32 packed,
+        address underlying,
+        uint256 amount,
+        uint8 decimals
+    ) private view returns (uint256 fee, bool usedDynamicPricing) {
+        IPodPriceOracle oracle = priceOracle;
+        if (address(oracle) == address(0)) {
+            (uint96 fixedFee,,) = PrivacyPortalFeeLib.unpackFeeConfig(packed);
+            return (fixedFee, false);
+        }
+
+        (uint256 nativeUsd, uint256 collateralUsd) =
+            oracle.getLivePrices(nativeToken, underlying);
+        return PrivacyPortalFeeLib.resolvePortalFee(
+            packed,
+            amount,
+            decimals,
+            collateralUsd,
+            nativeUsd
+        );
+    }
+
+    function _portalFeeFloor(bytes32 packed, address underlying, uint256 amount, uint8 decimals)
+        private
+        view
+        returns (uint256 floor, uint128 maxFee)
+    {
+        (uint96 fixedFee, uint32 bps, uint128 max) = PrivacyPortalFeeLib.unpackFeeConfig(packed);
+        maxFee = max;
+        IPodPriceOracle oracle = priceOracle;
+        if (address(oracle) == address(0) || bps == 0) {
+            return (fixedFee, maxFee);
+        }
+        (uint256 nativeUsd, uint256 collateralUsd) =
+            oracle.getLivePrices(nativeToken, underlying);
+        (floor,) = PrivacyPortalFeeLib.resolvePortalFee(
+            packed,
+            amount,
+            decimals,
+            collateralUsd,
+            nativeUsd
+        );
+    }
+
+    function _requestMotherRegistration(
+        address pToken,
+        string calldata name,
+        string calldata symbol,
+        uint8 decimals
+    ) private returns (bytes32 requestId) {
+        IInbox.MpcMethodCall memory methodCall = IInbox.MpcMethodCall({
+            selector: bytes4(0),
+            data: abi.encodeWithSelector(PodErc20CotiMother.registerToken.selector, pToken, name, symbol, decimals),
+            datatypes: new bytes8[](0),
+            datalens: new bytes32[](0)
+        });
+
+        requestId = IInbox(inbox).sendOneWayMessage{value: msg.value}(
+            cotiChainId, cotiMotherContract, methodCall, bytes4(0)
+        );
+    }
+}

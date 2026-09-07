@@ -64,6 +64,18 @@ export const SEL = {
   OldPortalNotPaused: toFunctionSelector("OldPortalNotPaused(address)"),
   FactoryNotConfigured: toFunctionSelector("FactoryNotConfigured()"),
   AccessControlUnauthorizedAccount: toFunctionSelector("AccessControlUnauthorizedAccount(address,bytes32)"),
+  // --- errors introduced by the patched *Fixed contracts ---
+  RequestIdAlreadyUsedP: toFunctionSelector("RequestIdAlreadyUsed(bytes32,uint8)"),
+  RequestIdAlreadyUsed: toFunctionSelector("RequestIdAlreadyUsed(bytes32)"),
+  OldPortalNotRetired: toFunctionSelector("OldPortalNotRetired(address)"),
+  PortalNotFromThisFactory: toFunctionSelector("PortalNotFromThisFactory(address)"),
+  FixedFeeAboveCeiling: toFunctionSelector("FixedFeeAboveCeiling(uint256,uint256)"),
+  RescueExceedsFreeCollateral: toFunctionSelector("RescueExceedsFreeCollateral(uint256,uint256)"),
+  WithdrawalNotStuck: toFunctionSelector("WithdrawalNotStuck(bytes32)"),
+  NotWithdrawalOwner: toFunctionSelector("NotWithdrawalOwner(bytes32,address)"),
+  ExcessivePortalFee: toFunctionSelector("ExcessivePortalFee(uint256,uint256)"),
+  InvalidLimitConfiguration: toFunctionSelector("InvalidLimitConfiguration()"),
+  OracleRateUnavailable: toFunctionSelector("OracleRateUnavailable()"),
 } as const;
 
 /// Matcher: the thrown error carries this custom error (by decoded name OR raw 4-byte selector).
@@ -147,8 +159,15 @@ export type Net = Awaited<ReturnType<typeof connectNet>>;
 
 export type UnderlyingKind = "erc20" | "fot" | "native" | "blocklist";
 
-export async function deployStack(net: Net, opts: { kind?: UnderlyingKind; feeBps?: bigint; adminIndex?: number } = {}) {
+export async function deployStack(
+  net: Net,
+  opts: { kind?: UnderlyingKind; feeBps?: bigint; adminIndex?: number; fixed?: boolean; keepPaused?: boolean } = {}
+) {
   const kind = opts.kind ?? "erc20";
+  // `fixed: true` deploys the patched *Fixed contracts (test/portal-poc/contracts/patched) instead of the real ones.
+  const names = opts.fixed
+    ? { portal: "PrivacyPortalFixed", pToken: "PodErc20MintableInitializableFixed", factory: "PrivacyPortalFactoryFixed" }
+    : { portal: "PrivacyPortalHarness", pToken: "PodErc20MintableInitializableHarness", factory: "PrivacyPortalFactoryHarness" };
   const { viem, wallets, client } = net;
   const adminW = wallets[opts.adminIndex ?? 0];
   const [, userW, user2W, operatorW, strangerW, rescueW] = wallets;
@@ -163,10 +182,10 @@ export async function deployStack(net: Net, opts: { kind?: UnderlyingKind; feeBp
   const inbox = await viem.deployContract("MockInboxForPortal", [], c);
   const wnative = await viem.deployContract("MockWrappedNativeHarness", [], c);
   const oracle = await viem.deployContract("PortalFeeOracleHarness", [admin], c);
-  const portalImpl = await viem.deployContract("PrivacyPortalHarness", [], c);
-  const pTokenImpl = await viem.deployContract("PodErc20MintableInitializableHarness", [], c);
+  const portalImpl = await viem.deployContract(names.portal as any, [], c);
+  const pTokenImpl = await viem.deployContract(names.pToken as any, [], c);
   const factory = await viem.deployContract(
-    "PrivacyPortalFactoryHarness",
+    names.factory as any,
     [
       admin,
       inbox.address,
@@ -204,8 +223,12 @@ export async function deployStack(net: Net, opts: { kind?: UnderlyingKind; feeBp
   await factory.write.createPortal([underlyingAddr, "pMock", "pMOCK", decimals, isNative]);
   const portalAddr = (await factory.read.portalForUnderlying([underlyingAddr])) as Hex;
   const pTokenAddr = (await factory.read.pTokenForUnderlying([underlyingAddr])) as Hex;
-  const portal = await viem.getContractAt("PrivacyPortalHarness", portalAddr, c);
-  const pToken = await viem.getContractAt("PodErc20MintableInitializableHarness", pTokenAddr, c);
+  const portal = await viem.getContractAt(names.portal as any, portalAddr, c);
+  const pToken = await viem.getContractAt(names.pToken as any, pTokenAddr, c);
+  // FIX #5 leaves a freshly created portal paused; open it unless the test wants to observe that state.
+  if (opts.fixed && !opts.keepPaused) {
+    await (portal as any).write.unpause();
+  }
 
   if (!isNative) {
     for (const who of [user, user2, stranger]) {
@@ -219,7 +242,7 @@ export async function deployStack(net: Net, opts: { kind?: UnderlyingKind; feeBp
     adminW, userW, user2W, operatorW, strangerW, rescueW,
     admin, user, user2, operator, stranger, rescue,
     inbox, wnative, oracle, portalImpl, pTokenImpl, factory, underlying, portal, pToken,
-    decimals, isNative,
+    decimals, isNative, names, fixed: !!opts.fixed,
     balanceNonce: 0n,
   };
   return s;
@@ -337,7 +360,10 @@ export async function deliverSuccess(s: Stack, requestId: Hex, from: Hex, to: He
   const inbox = await currentInbox({ ...s, pToken } as Stack);
   const cotiSide = (await pToken.read.cotiSideContract()) as Hex;
   s.balanceNonce += 1n;
-  const hash = await inbox.write.deliverTransferSuccess([pToken.address, COTI_CHAIN_ID, cotiSide, requestId, from, to, s.balanceNonce]);
+  // Explicit gas: the pToken forwards the remaining gas into a swallowed low-level call, so eth_estimateGas can
+  // under-provision the inner portal hook (the outer tx "succeeds" even when the hook runs out of gas). A real
+  // inbox miner funds the callback leg from the paid callback fee budget; 5M models a generous budget.
+  const hash = await inbox.write.deliverTransferSuccess([pToken.address, COTI_CHAIN_ID, cotiSide, requestId, from, to, s.balanceNonce], { gas: 5_000_000n });
   const rc = await receipt(s, hash);
   const failed = parseEventLogs({ abi: pToken.abi, logs: rc.logs, eventName: "RequestCallbackFailed" });
   return { receipt: rc, callbackFailed: failed.length > 0 };
@@ -395,7 +421,7 @@ export async function remount(s: Stack, o: { pause?: boolean } = {}) {
   if (o.pause ?? true) await s.portal.write.pause();
   await s.factory.write.createPortalWithExistingPToken([s.underlying.address, s.pToken.address, s.isNative]);
   const newAddr = (await s.factory.read.portalForUnderlying([s.underlying.address])) as Hex;
-  const newPortal = await s.viem.getContractAt("PrivacyPortalHarness", newAddr, { client: { public: s.client, wallet: s.adminW } });
+  const newPortal = await s.viem.getContractAt(s.names.portal as any, newAddr, { client: { public: s.client, wallet: s.adminW } });
   return newPortal;
 }
 
