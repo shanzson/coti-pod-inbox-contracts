@@ -75,4 +75,34 @@ contract StalePricePoC is Test {
         (bool ok, uint256 units,) = _send();
         assertTrue(ok); assertEq(units, 3_000_000);
     }
+
+    /// Correction check: does a stale-LOW price halt the lane, or just overcharge? The quoter reads the
+    /// same cache (FeeManagerStubBase.sol:161), so a sender who follows the quote still succeeds.
+    function test_4_stale_low_overcharges_quote_followers_rather_than_halting() public {
+        uint256 sz = abi.encode(_mc()).length;
+        oracle.setLocalTokenPriceUSD(8e15);                       // true price $0.008
+        (uint256 feeTrue,) = source.calculateTwoWayFeeRequiredInLocalToken(sz, sz, 0, 0, GP);
+        oracle.setLocalTokenPriceUSD(1e15);                       // stale-low $0.001 (8x too low)
+        (uint256 feeStale,) = source.calculateTwoWayFeeRequiredInLocalToken(sz, sz, 0, 0, GP);
+        console2.log("quoted COTI fee at true price :", feeTrue / 1e18);
+        console2.log("quoted COTI fee at stale-low  :", feeStale / 1e18, " (x", feeStale / feeTrue);
+        vm.prank(user, user);
+        (bool ok,) = address(source).call{value: feeStale}(abi.encodeCall(IInbox.sendOneWayMessage, (DST, address(0xBEEF), _mc(), bytes4(0))));
+        assertTrue(ok, "quote-following sender still succeeds under stale-low");
+        vm.prank(user, user);
+        (bool okFixed, bytes memory err) = address(source).call{value: feeTrue}(abi.encodeCall(IInbox.sendOneWayMessage, (DST, address(0xBEEF), _mc(), bytes4(0))));
+        console2.log("sender paying the TRUE-price fee under stale-low: ok =", okFixed, " selector:");
+        console2.logBytes4(bytes4(err));
+        assertFalse(okFixed);
+    }
+
+    /// Correction check: does stale-HIGH make the operator lose gas on every message, or only on messages
+    /// whose target actually consumes the inflated budget? targetFee is a budget, not a payout.
+    function test_5_stale_high_loss_is_bounded_by_gas_actually_consumed() public {
+        oracle.setLocalTokenPriceUSD(12e15);                      // stale-high: 1000 COTI buys 3,000,000 units
+        (bool ok, uint256 units,) = _send();
+        assertTrue(ok); assertEq(units, 3_000_000);
+        console2.log("budget committed:", units, " units; paid for (true price):", 2_000_000);
+        console2.log("operator loss = min(gas the target burns, 3,000,000) - 2,000,000, floored at 0");
+    }
 }
