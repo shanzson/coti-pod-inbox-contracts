@@ -1,0 +1,104 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { zeroAddress, toFunctionSelector, type Hex } from "viem";
+import {
+  COTI_SIDE, COTI_CHAIN_ID, MAX128, ONE, USDC, SEL, WStatus,
+  connectNet, deployStack, doDeposit, doWithdraw, deliverSuccess, deliverMintSuccess,
+  withdrawal, bal, expectRevert, log, assertAddr,
+} from "/home/user/coti-pod-inbox-contracts/test/portal-poc/helpers.ts";
+
+const net = await connectNet();
+const FIXED = { fixed: true } as const;
+
+describe("Y1 — FIX #1b lets the requester revoke a third party's payment", { concurrency: 1 }, () => {
+  it("after the stuck condition clears, the owner still re-targets a deliverable payment away from the recipient", async () => {
+    const s = await deployStack(net, { kind: "blocklist", ...FIXED });
+    const amount = USDC(100);
+    const { requestId } = await doDeposit(s, s.user, amount);
+    await deliverMintSuccess(s, requestId, s.user);
+    // user pays user2 by withdrawing to user2.
+    const w = await doWithdraw(s, 1, s.user2, amount);
+    await s.underlying.write.setBlocked([s.user2, true]);
+    const r = await deliverSuccess(s, w.transferRequestId, s.user, s.portal.address);
+    assert.equal(r.callbackFailed, true);
+    // Issuer un-blocks user2: the payment is now perfectly deliverable, nothing is stuck.
+    await s.underlying.write.setBlocked([s.user2, false]);
+    const b2before = await bal(s, s.underlying, s.user2);
+    // Nothing in retargetStuckWithdrawal checks that delivery is still failing.
+    await s.portal.write.retargetStuckWithdrawal([w.withdrawalId, s.user], { account: s.user });
+    await s.portal.write.triggerWithdrawalRelease([w.withdrawalId], { account: s.stranger });
+    assert.equal((await withdrawal(s, w.withdrawalId)).status, WStatus.Released);
+    assert.equal(await bal(s, s.underlying, s.user2), b2before, "user2 got nothing");
+    log("Y1: deliverable payment revoked by the requester after the block was lifted");
+  });
+});
+
+describe("Y2 — FIX #4 bricks remount when the pToken's minter is a non-portal contract", { concurrency: 1 }, () => {
+  it("prevMinter without paused() makes createPortalWithExistingPToken revert on every factory, forever", async () => {
+    const s = await deployStack(net, { kind: "erc20", ...FIXED });
+    const admin2 = s.user2;
+    const f2 = await s.viem.deployContract(
+      "PrivacyPortalFactoryFixed",
+      [admin2, s.inbox.address, COTI_CHAIN_ID, COTI_SIDE, s.pTokenImpl.address, s.portalImpl.address, admin2, admin2, s.wnative.address, s.oracle.address, 0n, 0n, MAX128, 0n, 0n, MAX128],
+      { client: { public: s.client, wallet: s.adminW } }
+    );
+    // F1's admin rotates the minter to some non-portal contract (any contract without paused()).
+    await s.factory.write.setPTokenMinter([s.pToken.address, s.underlying.address]);
+    assertAddr(await s.pToken.read.minter(), s.underlying.address, "minter is a non-portal contract");
+    await s.factory.write.transferPTokenOwnership([s.pToken.address, f2.address]);
+    // F2 can never attach: the probe on prevMinter reverts (no paused() on an ERC20).
+    let reverted = false;
+    try {
+      await f2.write.createPortalWithExistingPToken([s.underlying.address, s.pToken.address, false], { account: admin2 });
+    } catch (e) { reverted = true; log("Y2 remount:", String(e).slice(0, 140)); }
+    assert.equal(reverted, true, "remount on F2 reverts");
+    // And neither factory can rotate the minter back: F1 no longer owns the token, F2 has no mapping.
+    await expectRevert(() => s.factory.write.setPTokenMinter([s.pToken.address, s.portal.address]), toFunctionSelector("PTokenNotOwnedByFactory(address,address)"), "PTokenNotOwnedByFactory", "F1 setPTokenMinter");
+    await expectRevert(() => f2.write.setPTokenMinter([s.pToken.address, s.portal.address], { account: admin2 }), toFunctionSelector("UnknownPToken(address)"), "UnknownPToken", "F2 setPTokenMinter");
+    log("Y2: pToken permanently unattachable");
+  });
+});
+
+describe("Y3 — FIX #11 strict mode", { concurrency: 1 }, () => {
+  it("bricks the withdrawal exit path on an oracle outage, and is bypassed entirely when the oracle is unset", async () => {
+    const s = await deployStack(net, { kind: "erc20", ...FIXED });
+    await s.oracle.write.setTokenPriceUSD([s.wnative.address, ONE]);
+    await s.oracle.write.setTokenPriceUSD([s.underlying.address, ONE]);
+    await s.factory.write.setDefaultWithdrawFee([0n, 10_000n, 10n * ONE]); // 1%
+    await s.factory.write.setDefaultDepositFee([0n, 10_000n, 10n * ONE]);
+    await s.portal.write.setRequireDynamicPricing([true]);
+    const { requestId } = await doDeposit(s, s.user, USDC(100), { portalFee: ONE });
+    await deliverMintSuccess(s, requestId, s.user);
+    // Oracle outage: the exit path now reverts instead of falling back to the fixed fee.
+    await s.oracle.write.clearTokenPriceUSD([s.underlying.address]);
+    await expectRevert(() => doWithdraw(s, 1, s.user, USDC(50), { portalFee: 0n }), SEL.OracleRateUnavailable, "OracleRateUnavailable", "withdraw during outage");
+    await expectRevert(() => doWithdraw(s, 1, s.user, USDC(50), { portalFee: ONE }), SEL.OracleRateUnavailable, "OracleRateUnavailable", "withdraw during outage, fee paid");
+    // Strict mode is silently bypassed if the oracle itself is unset (early return before the check).
+    await s.factory.write.setPriceOracle([zeroAddress]);
+    const w = await doWithdraw(s, 1, s.user, USDC(50), { portalFee: 0n });
+    assert.equal((await withdrawal(s, w.withdrawalId)).status, WStatus.TransferPending);
+    assert.equal(await s.portal.read.accumulatedPortalFees(), ONE, "still only the deposit fee: withdraw paid 0 under strict mode");
+    log("Y3: strict mode = exit-path DoS on outage, and no protection at all when priceOracle == 0");
+  });
+});
+
+describe("Y4 — FIX #4's retirePortal is a one-way door that bricks same-factory remount", { concurrency: 1 }, () => {
+  it("after retirePortal(A), F1 can never remount the pToken: retireDepositsForUpgrade reverts on a detached portal", async () => {
+    const s = await deployStack(net, { kind: "erc20", ...FIXED });
+    const { requestId } = await doDeposit(s, s.user, USDC(100));
+    await deliverMintSuccess(s, requestId, s.user);
+    const portalA = s.portal;
+    await portalA.write.pause();
+    await s.factory.write.retirePortal([portalA.address]);
+    assertAddr(await portalA.read.factory(), zeroAddress, "A detached");
+    // The pToken is still owned & mapped by F1, A is paused — every documented precondition holds...
+    await expectRevert(
+      () => s.factory.write.createPortalWithExistingPToken([s.underlying.address, s.pToken.address, false]),
+      toFunctionSelector("OnlyPortalFactory(address)"), "OnlyPortalFactory", "same-factory remount after retire");
+    // ...and createPortal for the same underlying is blocked too: the slot is occupied forever.
+    await expectRevert(
+      () => s.factory.write.createPortal([s.underlying.address, "n", "n", 6, false]),
+      toFunctionSelector("PortalAlreadyExists(address,address)"), "PortalAlreadyExists", "fresh portal for the same underlying");
+    log("Y4: retirePortal strands the underlying on its own factory");
+  });
+});

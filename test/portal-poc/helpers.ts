@@ -75,7 +75,8 @@ export const SEL = {
   NotWithdrawalOwner: toFunctionSelector("NotWithdrawalOwner(bytes32,address)"),
   ExcessivePortalFee: toFunctionSelector("ExcessivePortalFee(uint256,uint256)"),
   InvalidLimitConfiguration: toFunctionSelector("InvalidLimitConfiguration()"),
-  OracleRateUnavailable: toFunctionSelector("OracleRateUnavailable()"),
+  RetargetOnlyToSelf: toFunctionSelector("RetargetOnlyToSelf(bytes32)"),
+  UnknownBatchBurn: toFunctionSelector("UnknownBatchBurn(bytes32)"),
 } as const;
 
 /// Matcher: the thrown error carries this custom error (by decoded name OR raw 4-byte selector).

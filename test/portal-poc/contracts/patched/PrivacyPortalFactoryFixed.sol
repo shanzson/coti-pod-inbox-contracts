@@ -402,6 +402,16 @@ contract PrivacyPortalFactoryFixed is IPrivacyPortalFactory, IPrivacyPortalFacto
     /// @notice Admin: rotate the authorized minter on a factory-owned pToken (factory is Ownable owner).
     function setPTokenMinter(address pToken_, address newMinter_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _requireFactoryOwnedPToken(pToken_);
+        // FIX #4 (review change): the emergency rotation cannot leave a live, unpaused portal advertising deposits
+        //         it can no longer mint for. (Retire is not required here so the tool stays usable for recovery.)
+        address current = PodErc20MintableFixed(payable(pToken_)).minter();
+        if (current != newMinter_ && current != address(0) && current.code.length != 0) {
+            try IPrivacyPortal(current).paused() returns (bool p) {
+                if (!p) {
+                    revert OldPortalNotPaused(current);
+                }
+            } catch {}
+        }
         PodErc20MintableFixed(payable(pToken_)).setMinter(newMinter_);
     }
 
@@ -445,6 +455,46 @@ contract PrivacyPortalFactoryFixed is IPrivacyPortalFactory, IPrivacyPortalFacto
             revert OldPortalNotPaused(portal);
         }
         IPrivacyPortal(portal).retireDepositsForUpgrade();
+    }
+
+    /// FIX #4 (review change): probe the pToken's current minter with try/catch. A minter that is not a portal
+    ///         (probe fails) is treated like no minter — it cannot brick the token. A live portal must be paused,
+    ///         and (for attach/remount) retired, with a matching native-wrap mode.
+    function _requirePreviousMinterClosed(address existingPToken, bool nativeWrappedUnderlying, bool requireRetired)
+        private
+        view
+    {
+        address prevMinter = PodErc20MintableFixed(payable(existingPToken)).minter();
+        if (prevMinter == address(0) || prevMinter.code.length == 0) {
+            return;
+        }
+        bool isPaused;
+        try IPrivacyPortal(prevMinter).paused() returns (bool p) {
+            isPaused = p;
+        } catch {
+            return; // not a portal
+        }
+        address prevFactory;
+        try PrivacyPortalFixed(payable(prevMinter)).factory() returns (address f) {
+            prevFactory = f;
+        } catch {
+            return;
+        }
+        bool prevNative;
+        try IPrivacyPortal(prevMinter).nativeWrappedUnderlying() returns (bool n) {
+            prevNative = n;
+        } catch {
+            return;
+        }
+        if (!isPaused) {
+            revert OldPortalNotPaused(prevMinter);
+        }
+        if (requireRetired && prevFactory != address(0)) {
+            revert OldPortalNotRetired(prevMinter);
+        }
+        if (prevNative != nativeWrappedUnderlying) {
+            revert NativeWrapMismatch(prevMinter, prevNative, nativeWrappedUnderlying);
+        }
     }
 
     /// FIX #7: admin-set ceiling for operator fixed fees.
@@ -706,24 +756,17 @@ contract PrivacyPortalFactoryFixed is IPrivacyPortalFactory, IPrivacyPortalFacto
                 }
                 revert NativeWrapMismatch(oldPortal, oldNative, nativeWrappedUnderlying);
             }
-            IPrivacyPortal(oldPortal).retireDepositsForUpgrade();
+            // FIX #4 (review change): a portal already detached by {retirePortal} is not retired twice.
+            if (PrivacyPortalFixed(payable(oldPortal)).factory() != address(0)) {
+                IPrivacyPortal(oldPortal).retireDepositsForUpgrade();
+            }
         }
 
         // FIX #4: authority is read from the token, not from this factory's mapping. A pToken whose current minter
         //         is a live portal on ANOTHER factory may only be attached once that portal is paused and retired
         //         (its own factory's admin does that via retirePortal) and the native-wrap mode matches.
-        address prevMinter = PodErc20MintableFixed(payable(existingPToken)).minter();
-        if (oldPortal == address(0) && prevMinter != address(0) && prevMinter.code.length != 0) {
-            if (!IPrivacyPortal(prevMinter).paused()) {
-                revert OldPortalNotPaused(prevMinter);
-            }
-            if (PrivacyPortalFixed(payable(prevMinter)).factory() != address(0)) {
-                revert OldPortalNotRetired(prevMinter);
-            }
-            bool prevNative = IPrivacyPortal(prevMinter).nativeWrappedUnderlying();
-            if (prevNative != nativeWrappedUnderlying) {
-                revert NativeWrapMismatch(prevMinter, prevNative, nativeWrappedUnderlying);
-            }
+        if (oldPortal == address(0)) {
+            _requirePreviousMinterClosed(existingPToken, nativeWrappedUnderlying, true);
         }
 
         portal = Clones.clone(portalImplementation);

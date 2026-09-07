@@ -246,4 +246,39 @@ describe("F14 — request ids are unique only per inbox instance: rotation colli
     assert.equal(await s.portal.read.pendingBurnAmount(), amount / 2n, "portal now claims custody of pTokens it never received");
     log("F14: after inbox rotation, ids 2 and 3 were reissued; escrow overwrite + Success rewind + resurrected withdrawal paid");
   });
+
+  it("burn-id collision sub-claim: burnInFlight overwrite inflates burnInFlightTotal permanently and orphans the first reservation", async () => {
+    const s = await deployStack(net, { kind: "erc20" });
+    const amount = USDC(100);
+    const d = await doDeposit(s, s.user, amount);
+    await deliverMintSuccess(s, d.requestId, s.user);
+    const w = await doWithdraw(s, 1, s.user, amount);
+    await deliverSuccess(s, w.transferRequestId, s.user, s.portal.address);
+    assert.equal(await s.portal.read.pendingBurnAmount(), amount);
+    const b1 = await s.portal.write.burnAccumulatedPTokens([amount / 4n, 100n], { value: 1000n }); // nonce 4 on inbox1, Pending
+    await s.client.waitForTransactionReceipt({ hash: b1 });
+    const inbox1 = await currentInbox(s);
+    const burnId = (await inbox1.read.lastRequestId()) as Hex;
+    const inbox2 = await s.viem.deployContract("MockInboxForPortal", []);
+    await s.factory.write.configurePToken([s.pToken.address, inbox2.address, COTI_SIDE]);
+    const dummy = { selector: "0x00000000", data: "0x", datatypes: [], datalens: [] } as any;
+    for (let i = 0; i < 3; i++) await inbox2.write.sendOneWayMessage([COTI_CHAIN_ID, COTI_SIDE, dummy, "0x00000000"]);
+    // Second burn is issued the SAME id: burnInFlight[id] is overwritten (=), burnInFlightTotal is incremented (+=).
+    const b2 = await s.portal.write.burnAccumulatedPTokens([amount / 4n, 100n], { value: 1000n });
+    await s.client.waitForTransactionReceipt({ hash: b2 });
+    const inbox2c = await currentInbox(s);
+    assert.equal(await inbox2c.read.lastRequestId(), burnId, "same burn request id reissued");
+    assert.equal(await s.portal.read.burnInFlight([burnId]), amount / 4n);
+    assert.equal(await s.portal.read.burnInFlightTotal(), amount / 2n, "two reservations, one slot");
+    // Settle the (single) request and finalize once: only ONE reservation is released; the other is orphaned forever.
+    await deliverSuccess(s, burnId, s.user, zeroAddress);
+    await s.portal.write.finalizeBatchBurn([burnId], { account: s.stranger });
+    assert.equal(await s.portal.read.burnInFlightTotal(), amount / 4n, "phantom reservation remains");
+    assert.equal(await s.portal.read.burnInFlight([burnId]), 0n);
+    await expectRevert(() => s.portal.write.finalizeBatchBurn([burnId], { account: s.stranger }), SEL.UnknownBatchBurn, "UnknownBatchBurn", "cannot clear the phantom");
+    // available = pendingBurnAmount - burnInFlightTotal is permanently understated by amount/4.
+    assert.equal(await s.portal.read.pendingBurnAmount(), (amount * 3n) / 4n);
+    await expectRevert(() => s.portal.write.burnAccumulatedPTokens([(amount * 3n) / 4n, 100n], { value: 1000n }), SEL.PendingBurnTooLow, "PendingBurnTooLow", "batch burn wedged by the phantom reservation");
+    log("F14b: burn-id collision → burnInFlightTotal permanently inflated by", amount / 4n);
+  });
 });

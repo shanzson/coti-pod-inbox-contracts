@@ -38,28 +38,39 @@ describe("X1 — fix for #1: stuck withdrawal", { concurrency: 1 }, () => {
     log("X1a: ETH send failed → WETH delivered; Released; pendingBurnAmount =", amount);
   });
 
-  it("X1b ERC-20 issuer blocklist: the withdrawal owner re-targets, anyone releases; guards hold", async () => {
+  it("X1b ERC-20 issuer blocklist: owner may only pull the payout back to themself; admin (paused) may re-target elsewhere", async () => {
     const s = await deployStack(net, { kind: "blocklist", ...FIXED });
     const amount = USDC(100);
-    const { requestId } = await doDeposit(s, s.user, amount);
+    const { requestId } = await doDeposit(s, s.user, amount * 2n);
     await deliverMintSuccess(s, requestId, s.user);
+    // Withdrawal #1: Alice (user) pays a third party (user2); the issuer blocks user2 mid-flight.
     const w = await doWithdraw(s, 1, s.user2, amount);
-    // Not stuck yet (still Pending): re-target refused.
-    await expectRevert(() => s.portal.write.retargetStuckWithdrawal([w.withdrawalId, s.operator], { account: s.user }), SEL.WithdrawalNotStuck, "WithdrawalNotStuck", "retarget before settlement");
+    await expectRevert(() => s.portal.write.retargetStuckWithdrawal([w.withdrawalId, s.user], { account: s.user }), SEL.WithdrawalNotStuck, "WithdrawalNotStuck", "retarget before settlement");
     await s.underlying.write.setBlocked([s.user2, true]);
     const r = await deliverSuccess(s, w.transferRequestId, s.user, s.portal.address);
     assert.equal(r.callbackFailed, true, "issuer block still makes the automatic release fail");
-    // A stranger cannot re-target; a blacklisted destination is refused; the owner can.
-    await expectRevert(() => s.portal.write.retargetStuckWithdrawal([w.withdrawalId, s.operator], { account: s.stranger }), SEL.NotWithdrawalOwner, "NotWithdrawalOwner", "stranger retarget");
-    await s.factory.write.addToBlacklist([s.rescue]);
-    await expectRevert(() => s.portal.write.retargetStuckWithdrawal([w.withdrawalId, s.rescue], { account: s.user }), SEL.AddressBlacklisted, "AddressBlacklisted", "retarget to blacklisted");
-    await s.portal.write.retargetStuckWithdrawal([w.withdrawalId, s.operator], { account: s.user });
-    const b0 = await bal(s, s.underlying, s.operator);
+    await expectRevert(() => s.portal.write.retargetStuckWithdrawal([w.withdrawalId, s.user], { account: s.stranger }), SEL.NotWithdrawalOwner, "NotWithdrawalOwner", "stranger retarget");
+    // Review change Y1: the requester cannot redirect a third-party payment to an arbitrary address...
+    await expectRevert(() => s.portal.write.retargetStuckWithdrawal([w.withdrawalId, s.operator], { account: s.user }), SEL.RetargetOnlyToSelf, "RetargetOnlyToSelf", "owner retarget to third party");
+    // ...only pull it back to themself.
+    await s.portal.write.retargetStuckWithdrawal([w.withdrawalId, s.user], { account: s.user });
+    const b0 = await bal(s, s.underlying, s.user);
     await s.portal.write.triggerWithdrawalRelease([w.withdrawalId], { account: s.stranger });
     assert.equal((await withdrawal(s, w.withdrawalId)).status, WStatus.Released);
-    assert.equal(await bal(s, s.underlying, s.operator), b0 + amount);
-    assert.equal(await s.portal.read.pendingBurnAmount(), amount);
-    log("X1b: owner re-targeted the stuck withdrawal; released to the new recipient");
+    assert.equal(await bal(s, s.underlying, s.user), b0 + amount);
+    // Withdrawal #2: Alice pays herself and the issuer blocks ALICE. Self re-target cannot help; the admin path (paused) can.
+    const w2 = await doWithdraw(s, 1, s.user, amount);
+    await s.underlying.write.setBlocked([s.user, true]);
+    const r2 = await deliverSuccess(s, w2.transferRequestId, s.user, s.portal.address);
+    assert.equal(r2.callbackFailed, true);
+    await expectRevert(() => s.portal.write.retargetStuckWithdrawal([w2.withdrawalId, s.operator], { account: s.admin }), SEL.NotWithdrawalOwner, "NotWithdrawalOwner", "admin retarget while unpaused");
+    await s.portal.write.pause();
+    await s.portal.write.retargetStuckWithdrawal([w2.withdrawalId, s.operator], { account: s.admin });
+    const c0 = await bal(s, s.underlying, s.operator);
+    await s.portal.write.triggerWithdrawalRelease([w2.withdrawalId], { account: s.stranger });
+    assert.equal(await bal(s, s.underlying, s.operator), c0 + amount);
+    assert.equal(await s.portal.read.pendingBurnAmount(), 2n * amount);
+    log("X1b: owner→self re-target; admin-while-paused re-target for a blocked owner; third-party redirect refused");
   });
 });
 
@@ -67,7 +78,7 @@ describe("X2 — fix for #2: blacklist enforced on the release leg", { concurren
   it("a recipient listed after the request is not paid; release resumes after de-listing; pause bypass stays (intended)", async () => {
     const s = await deployStack(net, { kind: "erc20", ...FIXED });
     const amount = USDC(100);
-    const { requestId } = await doDeposit(s, s.user, amount);
+    const { requestId } = await doDeposit(s, s.user, amount * 2n);
     await deliverMintSuccess(s, requestId, s.user);
     const w = await doWithdraw(s, 1, s.user2, amount);
     await s.factory.write.addToBlacklist([s.user2]);
@@ -75,12 +86,22 @@ describe("X2 — fix for #2: blacklist enforced on the release leg", { concurren
     assert.equal(r.callbackFailed, true, "automatic release refused for a blacklisted recipient");
     await expectRevert(() => s.portal.write.triggerWithdrawalRelease([w.withdrawalId], { account: s.stranger }), SEL.AddressBlacklisted, "AddressBlacklisted", "trigger to blacklisted");
     assert.equal(await bal(s, s.underlying, s.user2), USDC(1_000_000), "no payout");
+    // Review change: a listed PAYER is not paid either, and cannot route around the control by re-targeting to themself.
+    const w2 = await doWithdraw(s, 1, s.user, amount);
+    await s.factory.write.addToBlacklist([s.user]);
+    const r2 = await deliverSuccess(s, w2.transferRequestId, s.user, s.portal.address);
+    assert.equal(r2.callbackFailed, true);
+    await expectRevert(() => s.portal.write.triggerWithdrawalRelease([w2.withdrawalId], { account: s.stranger }), SEL.AddressBlacklisted, "AddressBlacklisted", "listed payer");
+    await expectRevert(() => s.portal.write.retargetStuckWithdrawal([w2.withdrawalId, s.user], { account: s.user }), SEL.AddressBlacklisted, "AddressBlacklisted", "listed payer retarget");
     // Compliance decision: de-list → release works, even while the portal is paused (documented migration model).
     await s.factory.write.removeFromBlacklist([s.user2]);
+    await s.factory.write.removeFromBlacklist([s.user]);
     await s.portal.write.pause();
     await s.portal.write.triggerWithdrawalRelease([w.withdrawalId], { account: s.stranger });
+    await s.portal.write.triggerWithdrawalRelease([w2.withdrawalId], { account: s.stranger });
     assert.equal((await withdrawal(s, w.withdrawalId)).status, WStatus.Released);
-    log("X2: blacklisted recipient blocked at settlement; released after de-listing");
+    assert.equal((await withdrawal(s, w2.withdrawalId)).status, WStatus.Released);
+    log("X2: listed recipient AND listed payer blocked at settlement; released after de-listing (paused)");
   });
 });
 
@@ -130,6 +151,23 @@ describe("X4 — fix for #4: cross-factory remount requires a paused AND retired
     assertAddr(await s.pToken.read.minter(), portalB, "minter rotated only after A was closed");
     await expectRevert(() => doDeposit(s, s.user, amount), SEL.DepositsPaused, "DepositsPaused", "deposit on retired A");
     log("X4: cross-factory attach blocked until A paused + retired");
+  });
+
+  it("Y2 regression: a non-portal minter cannot brick the pToken; Y4 regression: retirePortal is not a one-way door; setPTokenMinter needs a paused portal", async () => {
+    const s = await deployStack(net, { kind: "erc20", ...FIXED });
+    const portalA = s.portal;
+    const notAPortal = await s.viem.deployContract("MockERC20Harness", ["x", "x", 6]);
+    // setPTokenMinter away from a live, unpaused portal is refused (the back door the reviewer flagged).
+    await expectRevert(() => s.factory.write.setPTokenMinter([s.pToken.address, notAPortal.address]), SEL.OldPortalNotPaused, "OldPortalNotPaused", "rotate away from live portal");
+    await portalA.write.pause();
+    await s.factory.write.setPTokenMinter([s.pToken.address, notAPortal.address]); // allowed once paused (emergency tool)
+    // Y2: the minter is now a contract that is not a portal → probes fail → treated as "no portal", attach succeeds.
+    await s.factory.write.retirePortal([portalA.address]);
+    // Y4: after retirePortal the SAME factory can still remount (no double retire).
+    await s.factory.write.createPortalWithExistingPToken([s.underlying.address, s.pToken.address, false]);
+    const portalB = (await s.factory.read.portalForUnderlying([s.underlying.address])) as Hex;
+    assertAddr(await s.pToken.read.minter(), portalB, "remounted on the same factory after retirePortal");
+    log("Y2/Y4: non-portal minter tolerated; retirePortal followed by a same-factory remount works");
   });
 });
 
@@ -243,7 +281,15 @@ describe("X13 — fix for #13: bounded wrap", { concurrency: 1 }, () => {
     const rc = await s.client.waitForTransactionReceipt({ hash });
     const fees = parseEventLogs({ abi: s.portal.abi, logs: rc.logs, eventName: "OperationFeesPaid" })[0] as any;
     assert.equal(fees.args.portalFee, (ONE * 14n) / 10n);
-    log("X13: bound enforced; explicit 1.4 bound accepted");
+    // Plain ERC-7984 `wrap` is still unbounded by default (integrators cannot pass a bound)...
+    const h2 = await s.portal.write.wrap([s.user, amount, 100n], { account: s.user, value: ONE + ONE / 2n });
+    const rc2 = await s.client.waitForTransactionReceipt({ hash: h2 });
+    const fees2 = parseEventLogs({ abi: s.portal.abi, logs: rc2.logs, eventName: "OperationFeesPaid" })[0] as any;
+    assert.equal(fees2.args.portalFee, (ONE * 14n) / 10n, "plain wrap still charges the live floor");
+    // ...until the admin caps it.
+    await s.portal.write.setMaxAutoWrapPortalFee([ONE]);
+    await expectRevert(() => s.portal.write.wrap([s.user, amount, 100n], { account: s.user, value: ONE + ONE / 2n }), SEL.ExcessivePortalFee, "ExcessivePortalFee", "capped plain wrap");
+    log("X13: wrapWithMaxFee bound enforced; plain wrap capped by maxAutoWrapPortalFee");
   });
 });
 
@@ -269,5 +315,28 @@ describe("X14 — fix for #14: request ids are single-use", { concurrency: 1 }, 
     assert.equal(await reqStatus(s, w1.transferRequestId), Status.Pending, "W1 cannot be resurrected");
     await expectRevert(() => s.portal.write.triggerWithdrawalRelease([w1.withdrawalId], { account: s.stranger }), SEL.PTokenTransferNotSuccessful, "PTokenTransferNotSuccessful", "release of stranded W1");
     log("X14: collision refused; a fresh inbox cannot re-issue ids the pToken already holds");
+  });
+
+  it("burn-id collision (the unverified rev-2 sub-claim): the second burn with a reused id is refused", async () => {
+    const s = await deployStack(net, { kind: "erc20", ...FIXED });
+    const amount = USDC(100);
+    const d = await doDeposit(s, s.user, amount);
+    await deliverMintSuccess(s, d.requestId, s.user);
+    const w = await doWithdraw(s, 1, s.user, amount);
+    await deliverSuccess(s, w.transferRequestId, s.user, s.portal.address);
+    assert.equal(await s.portal.read.pendingBurnAmount(), amount);
+    const b1 = await s.portal.write.burnAccumulatedPTokens([amount / 4n, 100n], { value: 1000n }); // nonce 4 on inbox1
+    await s.client.waitForTransactionReceipt({ hash: b1 });
+    const inbox1 = await currentInbox(s);
+    const burnId = (await inbox1.read.lastRequestId()) as Hex;
+    assert.equal(await s.portal.read.burnInFlight([burnId]), amount / 4n);
+    const inbox2 = await s.viem.deployContract("MockInboxForPortal", []);
+    await s.factory.write.configurePToken([s.pToken.address, inbox2.address, COTI_SIDE]);
+    // Advance inbox2 to nonce 3 so the next burn would be issued id nonce 4 == burnId.
+    const dummy = { selector: "0x00000000", data: "0x", datatypes: [], datalens: [] } as any;
+    for (let i = 0; i < 3; i++) await inbox2.write.sendOneWayMessage([COTI_CHAIN_ID, COTI_SIDE, dummy, "0x00000000"]);
+    await expectRevert(() => s.portal.write.burnAccumulatedPTokens([amount / 4n, 100n], { value: 1000n }), SEL.RequestIdAlreadyUsedP, "RequestIdAlreadyUsed", "colliding burn");
+    assert.equal(await s.portal.read.burnInFlightTotal(), amount / 4n, "no double count");
+    log("X14b: colliding burn id refused; burnInFlightTotal not inflated");
   });
 });

@@ -70,9 +70,8 @@ contract PrivacyPortalFixed is IPrivacyPortal, IERC7984PortalWrapper, Pausable, 
     uint256 public withdrawalNonce;
     /// FIX #10: underlying committed to TransferPending withdrawals; {rescueERC20} may not dip into it.
     uint256 public outstandingWithdrawalTotal;
-    /// FIX #11 (optional, default off): revert instead of falling back to the fixed fee when a percentage fee is
-    ///         configured but the oracle has no usable rate.
-    bool public requireDynamicPricing;
+    /// FIX #13: optional per-portal cap on the fee that the un-bounded ERC-7984 `wrap` may charge (0 = config maxFee).
+    uint256 public maxAutoWrapPortalFee;
 
     /// @notice Maximum amount that can be deposited in a single transaction.
     uint256 public maxDepositAmount;
@@ -247,8 +246,8 @@ contract PrivacyPortalFixed is IPrivacyPortal, IERC7984PortalWrapper, Pausable, 
     error FixedFeeAboveCeiling(uint256 ceiling, uint256 fixedFee);
     /// FIX #10: rescue would take collateral committed to pending withdrawals.
     error RescueExceedsFreeCollateral(uint256 free, uint256 requested);
-    /// FIX #11: strict mode — percentage fee configured but no oracle rate.
-    error OracleRateUnavailable();
+    /// FIX #1b: the withdrawal owner may only re-target to themself; other destinations need the admin path.
+    error RetargetOnlyToSelf(bytes32 withdrawalId);
     /// FIX #14: an escrow / burn record already exists for this request id.
     error RequestIdAlreadyUsed(bytes32 requestId);
     /// FIX #1b: withdrawal recipient was re-targeted.
@@ -314,6 +313,10 @@ contract PrivacyPortalFixed is IPrivacyPortal, IERC7984PortalWrapper, Pausable, 
     /// @dev Clears {factory} so {setIsDepositEnabled} can never re-enable deposits. Admin/rescue auth continues
     ///      via {bindingFactory}. Remount also requires this portal to be {paused}.
     function retireDepositsForUpgrade() external override {
+        // FIX #4 (review change): idempotent — once detached, the binding factory may call it again (no-op).
+        if (factory == address(0) && msg.sender == bindingFactory) {
+            return;
+        }
         if (msg.sender != address(factory)) {
             revert OnlyPortalFactory(msg.sender);
         }
@@ -535,6 +538,11 @@ contract PrivacyPortalFixed is IPrivacyPortal, IERC7984PortalWrapper, Pausable, 
         returns (bytes32 requestId)
     {
         (uint256 portalFloor,) = _portalFeeFloor(amount, true);
+        // FIX #13: `wrap` keeps the ERC-7984 shape (no caller bound) — DEPRECATED for direct use; integrators should
+        //          call {wrapWithMaxFee}. Ops can cap what this entry point may charge via {setMaxAutoWrapPortalFee}.
+        if (maxAutoWrapPortalFee != 0 && portalFloor > maxAutoWrapPortalFee) {
+            revert ExcessivePortalFee(maxAutoWrapPortalFee, portalFloor);
+        }
         return _deposit(to, amount, portalFloor, mintCallbackFee);
     }
 
@@ -656,7 +664,7 @@ contract PrivacyPortalFixed is IPrivacyPortal, IERC7984PortalWrapper, Pausable, 
 
     /// @notice Factory-admin forced refund for a deposit escrow stuck {DepositEscrowStatus.Pending}
     ///         (e.g. a mint callback the inbox/miner never delivers).
-    /// @dev Gated on `whenPaused` (the admin must pause first) as a speed bump, not a proof of safety.
+    /// @dev FIX #8: gated on `paused()` only while the mint is not yet terminal (a speed bump, not a proof of safety).
     ///      **The caller (factory admin) is solely responsible for independently confirming — via the
     ///      COTI-side ledger / mother contract, not elapsed time — that this mint request can no longer
     ///      execute before calling this function.** A late mint success delivered after this refund would
@@ -681,17 +689,19 @@ contract PrivacyPortalFixed is IPrivacyPortal, IERC7984PortalWrapper, Pausable, 
             revert DepositMintAlreadySucceeded(requestId);
         }
 
-        // Invalidate before releasing collateral so a late mint Success cannot settle on the pToken.
-        if (mintStatus == IPodERC20.RequestStatus.Pending) {
-            // FIX #8: the pause speed bump only matters while a late Success is still possible; a request that is
-            //         already Failed/SystemFailed is terminal (PodERC20._setRequestStatus) and can be refunded unpaused.
+        // FIX #8: the pause speed bump only matters while a late Success is still possible. Only a terminal
+        //         Failed/SystemFailed request (PodERC20._setRequestStatus never leaves those) may be refunded unpaused.
+        if (mintStatus != IPodERC20.RequestStatus.Failed && mintStatus != IPodERC20.RequestStatus.SystemFailed) {
             if (!paused()) {
                 revert ExpectedPause();
             }
+            // Invalidate before releasing collateral so a late mint Success cannot settle on the pToken.
             // FIX #3: after a remount this portal is no longer the minter; the factory admin must first call
             //         PrivacyPortalFactory.invalidatePTokenPendingRequest (owner-authorized), after which the
             //         request is terminal and this branch is skipped.
-            pToken.invalidatePendingRequest(requestId);
+            if (mintStatus == IPodERC20.RequestStatus.Pending) {
+                pToken.invalidatePendingRequest(requestId);
+            }
         }
 
         uint256 amount = escrow.amount;
@@ -939,8 +949,12 @@ contract PrivacyPortalFixed is IPrivacyPortal, IERC7984PortalWrapper, Pausable, 
         // FIX #2: the compliance list applies at settlement too. Read through bindingFactory so a retired
         //         (remounted) portal can still release its in-flight withdrawals; pause is deliberately NOT
         //         checked (in-flight settlement on a paused portal is the documented migration model).
-        if (blacklisted[withdrawal.recipient] || _controllerFactory().blacklisted(withdrawal.recipient)) {
+        IPrivacyPortalFactory ctrl = _controllerFactory();
+        if (blacklisted[withdrawal.recipient] || ctrl.blacklisted(withdrawal.recipient)) {
             revert AddressBlacklisted(withdrawal.recipient);
+        }
+        if (blacklisted[withdrawal.user] || ctrl.blacklisted(withdrawal.user)) {
+            revert AddressBlacklisted(withdrawal.user);
         }
 
         pendingBurnAmount += withdrawal.amount;
@@ -984,15 +998,25 @@ contract PrivacyPortalFixed is IPrivacyPortal, IERC7984PortalWrapper, Pausable, 
         if (withdrawal.status != WithdrawalStatus.TransferPending) {
             revert WithdrawalNotPending(withdrawalId, withdrawal.status);
         }
+        IPrivacyPortalFactory ctrl = _controllerFactory();
         bool isOwner = msg.sender == withdrawal.user;
-        bool isAdmin = _controllerFactory().isAdmin(msg.sender) && paused();
+        bool isAdmin = ctrl.isAdmin(msg.sender) && paused();
         if (!isOwner && !isAdmin) {
             revert NotWithdrawalOwner(withdrawalId, msg.sender);
+        }
+        // Review change: the requester may only pull the payout back to themself (no revocation of a third-party
+        // payment that may still be deliverable); any other destination is an admin decision while paused.
+        if (!isAdmin && newRecipient != withdrawal.user) {
+            revert RetargetOnlyToSelf(withdrawalId);
         }
         if (pToken.requests(withdrawal.transferRequestId).status != IPodERC20.RequestStatus.Success) {
             revert WithdrawalNotStuck(withdrawalId);
         }
-        if (blacklisted[newRecipient] || _controllerFactory().blacklisted(newRecipient)) {
+        // Review change: a listed payer cannot route around FIX #2 by re-targeting.
+        if (blacklisted[withdrawal.user] || ctrl.blacklisted(withdrawal.user)) {
+            revert AddressBlacklisted(withdrawal.user);
+        }
+        if (blacklisted[newRecipient] || ctrl.blacklisted(newRecipient)) {
             revert AddressBlacklisted(newRecipient);
         }
         address old = withdrawal.recipient;
@@ -1000,9 +1024,9 @@ contract PrivacyPortalFixed is IPrivacyPortal, IERC7984PortalWrapper, Pausable, 
         emit WithdrawalRetargeted(withdrawalId, old, newRecipient);
     }
 
-    /// FIX #11 (optional): strict dynamic pricing.
-    function setRequireDynamicPricing(bool required) external onlyFactoryAdmin {
-        requireDynamicPricing = required;
+    /// FIX #13: admin cap for the un-bounded `wrap` entry point (0 disables the cap).
+    function setMaxAutoWrapPortalFee(uint256 cap) external onlyFactoryAdmin {
+        maxAutoWrapPortalFee = cap;
     }
 
     /// FIX #7: operators may not set a fixed fee above the factory ceiling; admins may.
@@ -1042,18 +1066,13 @@ contract PrivacyPortalFixed is IPrivacyPortal, IERC7984PortalWrapper, Pausable, 
             portalFactory.nativeToken(),
             address(underlyingToken)
         );
-        bool usedDynamic;
-        (floor, usedDynamic) = PrivacyPortalFeeLib.resolvePortalFee(
+        (floor,) = PrivacyPortalFeeLib.resolvePortalFee(
             packed,
             amount,
             decimals,
             collateralUsd,
             nativeUsd
         );
-        // FIX #11 (opt-in): a configured percentage fee with no usable oracle rate is an error, not a free ride.
-        if (requireDynamicPricing && !usedDynamic) {
-            revert OracleRateUnavailable();
-        }
     }
 
     function _estimatePortalFee(uint256 amount, bool isDeposit)

@@ -105,7 +105,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite { background: #f7f8fa; }
 </style></head>
 <body><div class="banner"><div class="eyebrow">Smart-Contract Security Review — PoC-validated, independently critiqued</div>
-<h1>🔐 Security Review — PrivacyPortal &amp; PrivacyPortalFactory</h1><div class="meta">coti-io/coti-contracts @ 8a0c4928004dac7a6c8d50bde58a022b6912f963 · PrivacyPortal &amp; PrivacyPortalFactory · 2026-09-05 · rev 3 (PoC-validated · fixes implemented and test-validated · independently reviewed)</div></div>
+<h1>🔐 Security Review — PrivacyPortal &amp; PrivacyPortalFactory</h1><div class="meta">coti-io/coti-contracts @ 8a0c4928004dac7a6c8d50bde58a022b6912f963 · PrivacyPortal &amp; PrivacyPortalFactory · 2026-09-05 · rev 3 (PoC-validated · fixes implemented, independently reviewed and test-validated)</div></div>
 <p><strong>Target:</strong> <code>coti-io/coti-contracts</code> @ commit <code>8a0c4928004dac7a6c8d50bde58a022b6912f963</code>
 <strong>Method:</strong> <a href="https://github.com/pashov/skills">pashov/skills</a> <code>solidity-auditor</code> v3 (<code>c577eb7</code>) — 12 parallel specialist agents on <code>opus</code>, orchestrator dedup and four-gate judging (rev 1) → executable PoCs against the unmodified contracts + independent critique (rev 2) → fixes implemented in a patched copy of the contracts, validated by test, and re-reviewed independently (rev 3).
 <strong>Date:</strong> 2026-09-05 · <strong>Revision:</strong> v3</p>
@@ -139,13 +139,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li><strong>Exploit PoCs (15 tests, all passing).</strong> Every finding is a Hardhat test that drives the <strong>unmodified</strong> coti-contracts code — <code>PrivacyPortal</code>, <code>PrivacyPortalFactory</code>, <code>PodErc20MintableInitializable</code> (→ <code>PodErc20Mintable</code> → <code>PodERC20</code>), <code>PrivacyPortalFeeLib</code>, <code>PortalFeeOracle</code> and, for #5, <code>PodErc20CotiMother</code> — through constructor-passthrough harnesses that add no logic (<code>test/portal-poc/contracts/PortalHarnesses.sol</code>). The only stand-in is the source-chain inbox (<code>MockInboxForPortal.sol</code>): it reproduces the real request-id packing and per-target nonce of <code>InboxBase</code> and delivers callbacks as <code>msg.sender == inbox</code>, so the real <code>onlyInboxPeer</code> / <code>onlyInboxReturnLeg</code> gates, the real <code>transferCallback</code> / <code>transferError</code> / <code>invalidatePendingRequest</code> / <code>killStaleRequest</code> paths and real EIP-712 permits execute. Files: <code>test/portal-poc/findings-A.ts</code> (#1–#7), <code>findings-B.ts</code> (#8–#14).</li>
 <li><strong>Independent critique #1</strong> (separate session, no access to rev 1 reasoning): re-ran the suite, re-read the code, judged precondition realism, documented-design status, existing mitigations and fix implementability. Its verdict vocabulary: <code class="ver v-ok">CONFIRMED</code>, <code class="ver v-down">CONFIRMED-DOWNGRADED</code>, <code class="ver v-design">DESIGN-CHOICE</code>, <code class="ver v-dup">DUPLICATE</code>, <code class="ver v-no">NOT-REPRODUCED</code>.</li>
-<li><strong>Fixes implemented and validated (rev 3).</strong> One concrete fix per finding was applied to a copy of the three contracts (<code>test/portal-poc/contracts/patched/*Fixed.sol</code>, every change marked <code>// FIX #n</code>). <code>test/portal-poc/fixes.ts</code> re-runs each exploit scenario against the patched stack (13 tests): the exploit must fail and the legitimate path must still work.</li>
-<li><strong>Independent critique #2</strong> (rev 3, separate session): re-judged real-issue vs false-positive from the code and reviewed every fix for correctness, completeness and new risk. Its per-finding verdicts are quoted under <em>Independent fix review</em>.</li>
+<li><strong>Fixes implemented and validated (rev 3).</strong> One concrete fix per finding was applied to a copy of the three contracts (<code>test/portal-poc/contracts/patched/*Fixed.sol</code>, every change marked <code>// FIX #n</code>, review-driven changes marked <code>review change</code>). <code>test/portal-poc/fixes.ts</code> re-runs each exploit scenario against the patched stack (15 tests, including regressions for the reviewer's adversarial cases Y1–Y4): the exploit must fail and the legitimate path must still work.</li>
+<li><strong>Independent critique #2</strong> (rev 3, separate session): re-judged real-issue vs false-positive from the code, reviewed every fix for correctness, completeness and new risk, and wrote four adversarial tests against the patched code. It agreed with every real/false-positive verdict, shipped 8 fixes as-is, required changes on 4 (#1, #2, #4, #13) and rejected 1 (#11). All required changes were applied and re-tested; the rejected fix was withdrawn. Its per-finding verdict is quoted under <em>Independent fix review</em>.</li>
 </ol>
 <div class="codehilite"><pre><span></span><code>export SOLC_NATIVE=/path/to/solc-static-linux   # 0.8.28+commit.7893614a
 NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.portal-poc.ts test \
   test/portal-poc/findings-A.ts test/portal-poc/findings-B.ts test/portal-poc/fixes.ts
-# → 28 passing: 15 exploit PoCs on the original code, 13 fix validations on the patched code
+# → 31 passing: 16 exploit PoCs on the original code, 15 fix validations on the patched code
 </code></pre></div>
 
 <p><strong>Severity policy.</strong> Likelihood × impact, with the <em>who must act</em> precondition weighed explicitly. Rev 1 confidence numbers are kept for traceability only; the <strong>Final severity</strong> column supersedes them.</p>
@@ -168,7 +168,7 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <td>Withdrawal stuck after pToken transfer Success</td>
 <td><strong>Yes</strong></td>
 <td><strong class="sev sev-med">Medium</strong></td>
-<td>WETH fallback on ETH-send failure + owner/admin <code>retargetStuckWithdrawal</code></td>
+<td>WETH fallback on ETH-send failure + <code>retargetStuckWithdrawal</code> (owner → self only; admin while paused → anywhere)</td>
 <td>✔ X1a, X1b</td>
 </tr>
 <tr>
@@ -176,7 +176,7 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <td>Blacklist not enforced on the release leg</td>
 <td>Yes (blacklist half); pause half is intended</td>
 <td><strong class="sev sev-low">Low</strong></td>
-<td>blacklist check in <code>_releaseWithdrawal</code> (via <code>bindingFactory</code>); pause deliberately not checked</td>
+<td>recipient <strong>and</strong> payer blacklist check in <code>_releaseWithdrawal</code> (via <code>bindingFactory</code>); no route-around via re-target; pause deliberately not checked</td>
 <td>✔ X2</td>
 </tr>
 <tr>
@@ -192,8 +192,8 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <td>Cross-factory remount skips every old-portal guard</td>
 <td><strong>Yes</strong></td>
 <td><strong class="sev sev-med">Medium</strong></td>
-<td>authority read from the token; previous portal must be paused <strong>and</strong> retired; <code>retirePortal</code></td>
-<td>✔ X4</td>
+<td>authority read from the token (try/catch probes); previous portal must be paused <strong>and</strong> retired; <code>retirePortal</code> (re-entrant-safe); <code>setPTokenMinter</code> needs a paused portal</td>
+<td>✔ X4, Y2/Y4</td>
 </tr>
 <tr>
 <td>5</td>
@@ -248,8 +248,8 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <td>Fee floor collapses to <code>fixedFee</code>/0 on zero oracle rate</td>
 <td>Documented fail-open</td>
 <td>Informational</td>
-<td>optional <code>requireDynamicPricing</code> strict mode (default off)</td>
-<td>proposed</td>
+<td><strong>no code change</strong> (a strict-mode flag was proposed, then withdrawn after review: it would brick the exit path on an oracle outage); monitor <code>usedDynamicPricing</code></td>
+<td>—</td>
 </tr>
 <tr>
 <td>12</td>
@@ -264,7 +264,7 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <td><code>wrap</code> has no caller-side fee bound</td>
 <td>Yes</td>
 <td><strong class="sev sev-low">Low</strong></td>
-<td><code>wrapWithMaxFee(..., maxPortalFee)</code></td>
+<td><code>wrapWithMaxFee(..., maxPortalFee)</code> + admin cap <code>maxAutoWrapPortalFee</code> on the ERC-7984 <code>wrap</code> (deprecated for direct use)</td>
 <td>✔ X13</td>
 </tr>
 <tr>
@@ -272,12 +272,12 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <td>Request-id reuse across inbox rotation</td>
 <td><strong>Yes</strong></td>
 <td><strong class="sev sev-med">Medium</strong></td>
-<td>single-use request ids in <code>PodERC20</code> + escrow/burn overwrite guards</td>
-<td>✔ X14</td>
+<td>single-use request ids in <code>PodERC20</code> + escrow/burn overwrite guards (burn double-count sub-claim now proven on the original code)</td>
+<td>✔ X14, X14b</td>
 </tr>
 </tbody>
 </table>
-<p>No Critical or High. Three Medium (#1, #4, #14), all with implemented and test-validated fixes.</p>
+<p>No Critical or High. Three Medium (#1, #4, #14), all with implemented, independently reviewed and test-validated fixes.</p>
 <hr />
 <h2 id="findings">Findings</h2>
 <h3 id="1-withdrawal-whose-ptoken-transfer-succeeded-but-whose-payout-reverts-is-permanently-stuck">1. Withdrawal whose pToken transfer succeeded but whose payout reverts is permanently stuck</h3>
@@ -305,17 +305,20 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <span class="w"> </span> }
 </code></pre></div>
 
-<p>(b) Let the withdrawal owner (or a factory admin while paused) re-target a withdrawal that is provably stuck. Only the destination changes; user, amount, request id and the <code>Success</code> precondition are untouched, and the new recipient must pass the same blacklist as a fresh request:</p>
+<p>(b) Let the withdrawal owner pull a provably stuck payout <strong>back to themself</strong>, or let a factory admin (portal paused) re-target it anywhere. Only the destination changes; user, amount, request id and the <code>Success</code> precondition are untouched; payer and new recipient must pass the blacklist:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">function</span><span class="w"> </span><span class="nv">retargetStuckWithdrawal</span><span class="p">(</span><span class="kt">bytes32</span><span class="w"> </span><span class="nv">withdrawalId</span><span class="p">,</span><span class="w"> </span><span class="kt">address</span><span class="w"> </span><span class="nv">newRecipient</span><span class="p">)</span><span class="w"> </span><span class="kt">external</span><span class="w"> </span>nonReentrant<span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span>newRecipient<span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kt">address</span><span class="p">(</span><span class="m m-Decimal">0</span><span class="p">))</span><span class="w"> </span>revert<span class="w"> </span>InvalidAddress<span class="p">();</span>
 <span class="w">    </span>Withdrawal<span class="w"> </span>storage<span class="w"> </span>withdrawal<span class="w"> </span><span class="o">=</span><span class="w"> </span>withdrawals<span class="p">[</span>withdrawalId<span class="p">];</span>
 <span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span>withdrawal<span class="p">.</span>user<span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kt">address</span><span class="p">(</span><span class="m m-Decimal">0</span><span class="p">))</span><span class="w"> </span>revert<span class="w"> </span>UnknownWithdrawal<span class="p">(</span>withdrawalId<span class="p">);</span>
 <span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span>withdrawal<span class="p">.</span>status<span class="w"> </span><span class="o">!=</span><span class="w"> </span>WithdrawalStatus<span class="p">.</span>TransferPending<span class="p">)</span><span class="w"> </span>revert<span class="w"> </span>WithdrawalNotPending<span class="p">(</span>withdrawalId<span class="p">,</span><span class="w"> </span>withdrawal<span class="p">.</span>status<span class="p">);</span>
+<span class="w">    </span>IPrivacyPortalFactory<span class="w"> </span>ctrl<span class="w"> </span><span class="o">=</span><span class="w"> </span>_controllerFactory<span class="p">();</span>
 <span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="nv">isOwner</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">msg.sender</span><span class="w"> </span><span class="o">==</span><span class="w"> </span>withdrawal<span class="p">.</span>user<span class="p">;</span>
-<span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="nv">isAdmin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>_controllerFactory<span class="p">().</span>isAdmin<span class="p">(</span><span class="k">msg.sender</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>paused<span class="p">();</span>
+<span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="nv">isAdmin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>ctrl<span class="p">.</span>isAdmin<span class="p">(</span><span class="k">msg.sender</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>paused<span class="p">();</span>
 <span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span>isOwner<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span>isAdmin<span class="p">)</span><span class="w"> </span>revert<span class="w"> </span>NotWithdrawalOwner<span class="p">(</span>withdrawalId<span class="p">,</span><span class="w"> </span><span class="k">msg.sender</span><span class="p">);</span>
+<span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span>isAdmin<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>newRecipient<span class="w"> </span><span class="o">!=</span><span class="w"> </span>withdrawal<span class="p">.</span>user<span class="p">)</span><span class="w"> </span>revert<span class="w"> </span>RetargetOnlyToSelf<span class="p">(</span>withdrawalId<span class="p">);</span><span class="w">   </span><span class="c1">// review change (Y1)</span>
 <span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span>pToken<span class="p">.</span>requests<span class="p">(</span>withdrawal<span class="p">.</span>transferRequestId<span class="p">).</span>status<span class="w"> </span><span class="o">!=</span><span class="w"> </span>IPodERC20<span class="p">.</span>RequestStatus<span class="p">.</span>Success<span class="p">)</span><span class="w"> </span>revert<span class="w"> </span>WithdrawalNotStuck<span class="p">(</span>withdrawalId<span class="p">);</span>
-<span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span>blacklisted<span class="p">[</span>newRecipient<span class="p">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span>_controllerFactory<span class="p">().</span>blacklisted<span class="p">(</span>newRecipient<span class="p">))</span><span class="w"> </span>revert<span class="w"> </span>AddressBlacklisted<span class="p">(</span>newRecipient<span class="p">);</span>
+<span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span>blacklisted<span class="p">[</span>withdrawal<span class="p">.</span>user<span class="p">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span>ctrl<span class="p">.</span>blacklisted<span class="p">(</span>withdrawal<span class="p">.</span>user<span class="p">))</span><span class="w"> </span>revert<span class="w"> </span>AddressBlacklisted<span class="p">(</span>withdrawal<span class="p">.</span>user<span class="p">);</span><span class="w"> </span><span class="c1">// review change</span>
+<span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span>blacklisted<span class="p">[</span>newRecipient<span class="p">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span>ctrl<span class="p">.</span>blacklisted<span class="p">(</span>newRecipient<span class="p">))</span><span class="w"> </span>revert<span class="w"> </span>AddressBlacklisted<span class="p">(</span>newRecipient<span class="p">);</span>
 <span class="w">    </span><span class="kt">address</span><span class="w"> </span><span class="nv">old</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>withdrawal<span class="p">.</span>recipient<span class="p">;</span>
 <span class="w">    </span>withdrawal<span class="p">.</span>recipient<span class="w"> </span><span class="o">=</span><span class="w"> </span>newRecipient<span class="p">;</span>
 <span class="w">    </span>emit<span class="w"> </span>WithdrawalRetargeted<span class="p">(</span>withdrawalId<span class="p">,</span><span class="w"> </span>old<span class="p">,</span><span class="w"> </span>newRecipient<span class="p">);</span>
@@ -323,7 +326,8 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 </code></pre></div>
 
 <p>Rev 1's "Option A" alone was only half a fix: re-wrapping addresses the native case but not an ERC-20 transfer that itself reverts. Note also that the release path now runs inside the miner's callback gas budget; if that budget is too small for the WETH fallback the hook still fails harmlessly and <code>triggerWithdrawalRelease</code> completes it.</p>
-<p><strong>Fix validation</strong> — <code>fixes.ts</code> › X1a: the rejecting recipient ends up holding WETH, the withdrawal is <code>Released</code>, <code>pendingBurnAmount == amount</code>. X1b: after the issuer blocklist, a stranger cannot re-target (<code>NotWithdrawalOwner</code>), a blacklisted destination is refused (<code>AddressBlacklisted</code>), a not-yet-settled withdrawal is refused (<code>WithdrawalNotStuck</code>), Alice re-targets to a clean address and anyone releases it.</p>
+<p><strong>Independent fix review.</strong> SHIP-WITH-CHANGES → applied. The reviewer's adversarial case Y1: the first version let the requester re-target <em>any</em> third-party payout, i.e. revoke a payment that might still be deliverable (and the window can be opened on purpose by under-funding the callback fee). The owner path is now self-only; arbitrary destinations need a factory admin with the portal paused. Fix (a) was judged correct as-is (CEI holds, return data discarded, both entry points <code>nonReentrant</code>).</p>
+<p><strong>Fix validation</strong> — <code>fixes.ts</code> › X1a: the rejecting recipient ends up holding WETH, the withdrawal is <code>Released</code>, <code>pendingBurnAmount == amount</code>. X1b: a not-yet-settled withdrawal cannot be re-targeted (<code>WithdrawalNotStuck</code>); a stranger cannot (<code>NotWithdrawalOwner</code>); the owner cannot redirect to a third party (<code>RetargetOnlyToSelf</code>) but can pull it back to themself and anyone releases it; when the <em>owner</em> is the blocked party, the admin re-targets while paused and the release completes.</p>
 <hr />
 <h3 id="2-blacklist-and-pause-are-enforced-only-at-request-time">2. Blacklist (and pause) are enforced only at request time</h3>
 <p><code>PrivacyPortal._releaseWithdrawal</code> · rev 1 confidence 85 · <strong class="sev sev-low">Low</strong></p>
@@ -340,13 +344,14 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <span class="w"> </span> }
 <span class="gi">+ // FIX #2: compliance applies at settlement too; pause deliberately NOT checked (in-flight settlement on a</span>
 <span class="gi">+ //         paused portal is the documented migration model).</span>
-<span class="gi">+ if (blacklisted[withdrawal.recipient] || _controllerFactory().blacklisted(withdrawal.recipient)) {</span>
-<span class="gi">+     revert AddressBlacklisted(withdrawal.recipient);</span>
-<span class="gi">+ }</span>
+<span class="gi">+ IPrivacyPortalFactory ctrl = _controllerFactory();</span>
+<span class="gi">+ if (blacklisted[withdrawal.recipient] || ctrl.blacklisted(withdrawal.recipient)) revert AddressBlacklisted(withdrawal.recipient);</span>
+<span class="gi">+ if (blacklisted[withdrawal.user]      || ctrl.blacklisted(withdrawal.user))      revert AddressBlacklisted(withdrawal.user); // review change</span>
 </code></pre></div>
 
-<p>A listed recipient's withdrawal then sits in the same state as #1 by design (funds frozen under compliance control); de-listing, or the #1 re-target path for a legitimately mis-listed recipient, releases it.</p>
-<p><strong>Fix validation</strong> — <code>fixes.ts</code> › X2: a recipient listed after the request is not paid (hook fails, trigger reverts <code>AddressBlacklisted</code>, balance unchanged); after de-listing the release succeeds, and it still succeeds while the portal is paused.</p>
+<p>A listed party's withdrawal then sits in the same state as #1 by design (funds frozen under compliance control); de-listing, or the #1 admin re-target path for a legitimately mis-listed recipient, releases it. <code>retargetStuckWithdrawal</code> refuses a listed payer, so the control cannot be routed around.</p>
+<p><strong>Independent fix review.</strong> SHIP-WITH-CHANGES → applied: (i) the payer (<code>withdrawal.user</code>) is now checked too, matching rev 1's own Option A; (ii) the re-target path applies the blacklist to the payer, closing the route-around the reviewer demonstrated. The reviewer confirmed the important non-regression: in-flight withdrawals still settle on a paused, retired portal (X10).</p>
+<p><strong>Fix validation</strong> — <code>fixes.ts</code> › X2: a recipient listed after the request is not paid (hook fails, trigger reverts <code>AddressBlacklisted</code>, balance unchanged); a listed <em>payer</em> is not paid and cannot re-target to themself; after de-listing both withdrawals release, while the portal is paused.</p>
 <hr />
 <h3 id="3-remount-rotates-the-ptoken-minter-away-bricking-the-retired-portals-adminrefundpendingdeposit">3. Remount rotates the pToken minter away, bricking the retired portal's <code>adminRefundPendingDeposit</code></h3>
 <p><code>PrivacyPortal.adminRefundPendingDeposit</code> · rev 1 confidence 85 · <strong class="sev sev-low">Low</strong></p>
@@ -373,6 +378,7 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 </code></pre></div>
 
 <p><code>adminRefundPendingDeposit</code> keeps calling <code>invalidatePendingRequest</code> while the mint is <code>Pending</code> (so the direct path still works for a live portal); after a remount the admin first calls the forwarder, the request becomes <code>Failed</code>, and the refund skips that branch.</p>
+<p><strong>Independent fix review.</strong> SHIP. The reviewer noted this grants DEFAULT_ADMIN no new capability: <code>killStaleRequest</code> is already owner-only and <code>setRequestKillMinAge(0)</code> already removes the age gate in one transaction, so the forwarder is a convenience, not an escalation. Two nits applied: the <code>@dev</code> no longer claims <code>whenPaused</code>, and the pause requirement is expressed as "unless the request is terminal" (so an unreachable <code>None</code> status is not treated as terminal).</p>
 <p><strong>Fix validation</strong> — <code>fixes.ts</code> › X3: after the remount the direct refund still reverts <code>OnlyMinter</code>; a stranger cannot use the forwarder; the admin's forwarder call sets <code>Failed</code>; the retired portal's refund then succeeds immediately.</p>
 <hr />
 <h3 id="4-cross-factory-remount-skips-every-old-portal-safety-guard">4. Cross-factory remount skips every old-portal safety guard</h3>
@@ -386,25 +392,42 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 4. Bob withdraws on A: works, A pays from its 1 M USDC. Team B cannot pause A (<code>OnlyFactoryAdmin</code>).
 5. Team B unpauses B (0 USDC). Carol withdraws 100 pUSDC on B: the COTI leg settles, the release reverts on balance — finding #1's shape.</p>
 <p><strong>PoC evidence</strong> — <code>findings-A.ts</code> › F4 with two real factories and different admins: minter on B, A unpaused/undetached, deposit on A → <code>OnlyMinter</code>, withdrawal on A <code>Released</code>, F2 admin <code>A.pause()</code> → <code>OnlyFactoryAdmin</code>, B unpaused with zero collateral → withdrawal accepted, release reverts <code>ERC20InsufficientBalance</code>.</p>
-<p><strong>Recommended fix</strong> (implemented). Read authority from the token, not from the local mapping, and refuse to attach a pToken whose current minter is a live portal anywhere; give the old factory's admin a way to retire a paused portal without cloning:</p>
-<div class="codehilite"><pre><span></span><code><span class="gi">+ address prevMinter = PodErc20Mintable(payable(existingPToken)).minter();</span>
-<span class="gi">+ if (oldPortal == address(0) &amp;&amp; prevMinter != address(0) &amp;&amp; prevMinter.code.length != 0) {</span>
-<span class="gi">+     if (!IPrivacyPortal(prevMinter).paused()) revert OldPortalNotPaused(prevMinter);</span>
-<span class="gi">+     if (PrivacyPortal(payable(prevMinter)).factory() != address(0)) revert OldPortalNotRetired(prevMinter);</span>
-<span class="gi">+     bool prevNative = IPrivacyPortal(prevMinter).nativeWrappedUnderlying();</span>
+<p><strong>Recommended fix</strong> (implemented). Read authority from the token, not from the local mapping; refuse to attach a pToken whose current minter is a live portal anywhere; give the old factory's admin a way to retire a paused portal without cloning; and close the <code>setPTokenMinter</code> back door:</p>
+<div class="codehilite"><pre><span></span><code><span class="w"> </span> // createPortalWithExistingPToken, before cloning
+<span class="gi">+ if (oldPortal == address(0)) _requirePreviousMinterClosed(existingPToken, nativeWrappedUnderlying, true);</span>
+<span class="w"> </span> // same-factory path: do not retire a portal twice
+<span class="gd">- IPrivacyPortal(oldPortal).retireDepositsForUpgrade();</span>
+<span class="gi">+ if (PrivacyPortal(payable(oldPortal)).factory() != address(0)) IPrivacyPortal(oldPortal).retireDepositsForUpgrade();</span>
+
+<span class="gi">+ /// Probes the pToken's current minter with try/catch: a minter that is not a portal cannot brick the token.</span>
+<span class="gi">+ function _requirePreviousMinterClosed(address existingPToken, bool nativeWrappedUnderlying, bool requireRetired) private view {</span>
+<span class="gi">+     address prevMinter = PodErc20Mintable(payable(existingPToken)).minter();</span>
+<span class="gi">+     if (prevMinter == address(0) || prevMinter.code.length == 0) return;</span>
+<span class="gi">+     bool isPaused; try IPrivacyPortal(prevMinter).paused() returns (bool p) { isPaused = p; } catch { return; }</span>
+<span class="gi">+     address prevFactory; try PrivacyPortal(payable(prevMinter)).factory() returns (address f) { prevFactory = f; } catch { return; }</span>
+<span class="gi">+     bool prevNative; try IPrivacyPortal(prevMinter).nativeWrappedUnderlying() returns (bool n) { prevNative = n; } catch { return; }</span>
+<span class="gi">+     if (!isPaused) revert OldPortalNotPaused(prevMinter);</span>
+<span class="gi">+     if (requireRetired &amp;&amp; prevFactory != address(0)) revert OldPortalNotRetired(prevMinter);</span>
 <span class="gi">+     if (prevNative != nativeWrappedUnderlying) revert NativeWrapMismatch(prevMinter, prevNative, nativeWrappedUnderlying);</span>
 <span class="gi">+ }</span>
-<span class="w"> </span> portal = Clones.clone(portalImplementation);
 
-<span class="gi">+ /// Old factory's admin: detach a paused portal of this factory before handing the pToken to another factory.</span>
+<span class="gi">+ /// Old factory's admin: detach a paused portal before handing the pToken to another factory.</span>
 <span class="gi">+ function retirePortal(address portal) external onlyRole(DEFAULT_ADMIN_ROLE) {</span>
 <span class="gi">+     if (PrivacyPortal(payable(portal)).factory() != address(this)) revert PortalNotFromThisFactory(portal);</span>
 <span class="gi">+     if (!IPrivacyPortal(portal).paused()) revert OldPortalNotPaused(portal);</span>
 <span class="gi">+     IPrivacyPortal(portal).retireDepositsForUpgrade();</span>
 <span class="gi">+ }</span>
+
+<span class="w"> </span> // setPTokenMinter: the emergency rotation may not leave a live, unpaused portal advertising deposits it cannot mint for
+<span class="gi">+ address current = PodErc20Mintable(payable(pToken_)).minter();</span>
+<span class="gi">+ if (current != newMinter_ &amp;&amp; current != address(0) &amp;&amp; current.code.length != 0) {</span>
+<span class="gi">+     try IPrivacyPortal(current).paused() returns (bool p) { if (!p) revert OldPortalNotPaused(current); } catch {}</span>
+<span class="gi">+ }</span>
 </code></pre></div>
 
-<p><strong>Fix validation</strong> — <code>fixes.ts</code> › X4: F2's remount reverts <code>OldPortalNotPaused(A)</code>; after A is paused it reverts <code>OldPortalNotRetired(A)</code>; a stranger cannot <code>retirePortal</code>; after F1's admin retires A the remount succeeds, the minter rotates, and deposits on A are refused.</p>
+<p><code>PrivacyPortal.retireDepositsForUpgrade</code> is made idempotent (a detached portal accepts a repeat call from its binding factory as a no-op), so <code>retirePortal</code> is not a one-way door.</p>
+<p><strong>Independent fix review.</strong> SHIP-WITH-CHANGES → applied. The first version had three defects the reviewer proved with tests: (Y2) unguarded <code>paused()</code> / <code>factory()</code> / <code>nativeWrappedUnderlying()</code> probes on an arbitrary minter would revert forever for a non-portal minter, bricking the pToken on every factory; (Y4) <code>retirePortal</code> cleared <code>factory</code>, after which the same factory's own remount reverted <code>OnlyPortalFactory</code>; and <code>setPTokenMinter</code> still rotated the minter with no pause coupling, bypassing the guard entirely. All three are fixed above.</p>
+<p><strong>Fix validation</strong> — <code>fixes.ts</code> › X4: F2's remount reverts <code>OldPortalNotPaused(A)</code>; after A is paused it reverts <code>OldPortalNotRetired(A)</code>; a stranger cannot <code>retirePortal</code>; after F1's admin retires A the remount succeeds, the minter rotates, and deposits on A are refused. Y2/Y4 regression: <code>setPTokenMinter</code> away from a live portal reverts <code>OldPortalNotPaused</code> and works once paused; a non-portal minter is tolerated; a same-factory remount after <code>retirePortal</code> succeeds.</p>
 <hr />
 <h3 id="5-createportal-returns-a-live-deposit-enabled-portal-before-the-one-way-coti-registration-has-landed">5. <code>createPortal</code> returns a live, deposit-enabled portal before the one-way COTI registration has landed</h3>
 <p><code>PrivacyPortalFactory.createPortal</code> · rev 1 confidence 80 · <strong class="sev sev-low">Low</strong> (documented design choice with a real window)</p>
@@ -421,11 +444,12 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 </code></pre></div>
 
 <p><code>unpause()</code> still works because <code>factory != 0</code> (<code>PrivacyPortal.sol:272-277</code>). Also fix the NatSpec.</p>
+<p><strong>Independent fix review.</strong> SHIP.</p>
 <p><strong>Fix validation</strong> — <code>fixes.ts</code> › X5: the clone is paused after <code>createPortal</code>; deposits revert <code>DepositsPaused</code>; after the admin unpauses, deposits work.</p>
 <hr />
 <h3 id="6-minter-rotation-in-the-remount-path-inspects-none-of-the-retiring-portals-in-flight-escrows">6. Minter rotation in the remount path inspects none of the retiring portal's in-flight escrows</h3>
 <p><code>PrivacyPortalFactory.createPortalWithExistingPToken</code> · rev 1 confidence 80 · <strong>Informational (duplicate of #3)</strong></p>
-<p>Same root cause, precondition, impact and fix as #3; it should have been merged at rev 1's dedup stage. The genuinely new content is a <strong>test-coverage</strong> observation: <code>MockPodErc20MintableForPortal</code> has no <code>invalidatePendingRequest</code> at all, and <code>MockPodERC20ForPortal.invalidatePendingRequest</code> has no minter gate, so the shipped suite cannot catch #3 (<code>findings-A.ts</code> › F6 demonstrates both). Recommendation: add the minter gate to the mocks and a remount-with-Pending-escrow test; the #3 fix covers the behaviour.</p>
+<p>Same root cause, precondition, impact and fix as #3; it should have been merged at rev 1's dedup stage. The genuinely new content is a <strong>test-coverage</strong> observation: <code>MockPodErc20MintableForPortal</code> has no <code>invalidatePendingRequest</code> at all, and <code>MockPodERC20ForPortal.invalidatePendingRequest</code> has no minter gate, so the shipped suite cannot catch #3 (<code>findings-A.ts</code> › F6 demonstrates both). Recommendation: add the minter gate to the mocks and a remount-with-Pending-escrow test; the #3 fix covers the behaviour. Independent fix review: agrees it is a duplicate.</p>
 <hr />
 <h3 id="7-operator-role-can-freeze-all-withdrawals-via-an-unbounded-fixedfee-floor">7. Operator role can freeze all withdrawals via an unbounded <code>fixedFee</code> floor</h3>
 <p><code>PrivacyPortal.setWithdrawFee</code> / <code>PrivacyPortalFactory.setDefaultWithdrawFee</code> · rev 1 confidence 75 · <strong class="sev sev-low">Low</strong></p>
@@ -445,6 +469,7 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <span class="w"> </span> // called first in setDefaultDepositFee / setDefaultWithdrawFee; the portal setters read the ceiling via bindingFactory
 </code></pre></div>
 
+<p><strong>Independent fix review.</strong> SHIP. Deployment note from the reviewer: the patched portal hard-calls <code>bindingFactory.maxOperatorFixedFee()</code>, so the portal and factory implementations must be upgraded together (a fixed portal on an old factory would brick both fee setters).</p>
 <p><strong>Fix validation</strong> — <code>fixes.ts</code> › X7: operator's huge <code>fixedFee</code> reverts <code>FixedFeeAboveCeiling</code> on both portal and factory; an in-ceiling operator fee is accepted; the admin may exceed it; withdrawals keep working.</p>
 <hr />
 <h3 id="8-refundfaileddeposit-rejects-mint-status-failed-which-the-protocols-own-ops-tools-write">8. <code>refundFailedDeposit</code> rejects mint status <code>Failed</code>, which the protocol's own ops tools write</h3>
@@ -460,13 +485,17 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <div class="codehilite"><pre><span></span><code><span class="gd">- function adminRefundPendingDeposit(bytes32 requestId) external override onlyFactoryAdmin nonReentrant whenPaused {</span>
 <span class="gi">+ function adminRefundPendingDeposit(bytes32 requestId) external override onlyFactoryAdmin nonReentrant {</span>
 <span class="w"> </span>     ...
-<span class="w"> </span>     if (mintStatus == IPodERC20.RequestStatus.Pending) {
-<span class="gi">+         if (!paused()) revert ExpectedPause();      // FIX #8: only a Pending mint needs the pause</span>
-<span class="w"> </span>         pToken.invalidatePendingRequest(requestId);
-<span class="w"> </span>     }
+<span class="gd">-     if (mintStatus == IPodERC20.RequestStatus.Pending) {</span>
+<span class="gd">-         pToken.invalidatePendingRequest(requestId);</span>
+<span class="gd">-     }</span>
+<span class="gi">+     if (mintStatus != IPodERC20.RequestStatus.Failed &amp;&amp; mintStatus != IPodERC20.RequestStatus.SystemFailed) {</span>
+<span class="gi">+         if (!paused()) revert ExpectedPause();          // FIX #8: only a not-yet-terminal mint needs the pause</span>
+<span class="gi">+         if (mintStatus == IPodERC20.RequestStatus.Pending) pToken.invalidatePendingRequest(requestId);</span>
+<span class="gi">+     }</span>
 </code></pre></div>
 
 <p>Keeping the permissionless path <code>SystemFailed</code>-only is correct: an app-level <code>Failed</code> (raise) must stay admin-reviewed. Also write or remove the dead <code>DepositEscrowStatus.Failed</code> branch.</p>
+<p><strong>Independent fix review.</strong> SHIP.</p>
 <p><strong>Fix validation</strong> — <code>fixes.ts</code> › X8: an unpaused admin refund of a <code>Pending</code> mint still reverts <code>ExpectedPause</code>; after the kill the refund succeeds with the portal open.</p>
 <hr />
 <h3 id="9-deposit-limits-and-the-fee-are-checked-on-the-requested-amount-but-the-position-is-minted-from-the-measured-received">9. Deposit limits and the fee are checked on the requested <code>amount</code>, but the position is minted from the measured <code>received</code></h3>
@@ -486,6 +515,7 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <span class="gi">+ _validateAndCollectPortalFee(portalFee, received, true);</span>
 </code></pre></div>
 
+<p><strong>Independent fix review.</strong> SHIP.</p>
 <p><strong>Fix validation</strong> — <code>fixes.ts</code> › X9: a 100 deposit on the 5% token reverts <code>DepositBelowMinimum</code>; a 106 deposit nets 100.7 and is accepted; the fee floor on <code>received</code> is lower than on the requested amount, and one wei below it reverts.</p>
 <hr />
 <h3 id="10-rescueerc20-has-no-reserve-for-withdrawals-already-in-transferpending">10. <code>rescueERC20</code> has no reserve for withdrawals already in <code>TransferPending</code></h3>
@@ -507,6 +537,7 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <span class="gi">+ }</span>
 </code></pre></div>
 
+<p><strong>Independent fix review.</strong> SHIP.</p>
 <p><strong>Fix validation</strong> — <code>fixes.ts</code> › X10: full-balance rescue reverts <code>RescueExceedsFreeCollateral</code>; rescuing the free part succeeds; the pending withdrawal still releases and the counter returns to 0.</p>
 <hr />
 <h3 id="11-fee-floor-silently-collapses-to-fixedfee-legally-0-when-the-oracle-returns-a-zero-rate">11. Fee floor silently collapses to <code>fixedFee</code> (legally 0) when the oracle returns a zero rate</h3>
@@ -515,16 +546,8 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <p><strong>Is it a real issue? Documented design choice.</strong> Fail-open is stated three times: <code>IPodPriceOracle.sol:9-10</code>, <code>PortalFeeOracle.sol:9</code>, <code>PrivacyPortalFeeLib.sol:78</code>. Reverting on a zero rate would brick deposits <em>and the exit path</em> factory-wide on any feed outage, which the leads section flags as a hazard. Impact is protocol revenue only; <code>usedDynamicPricing</code> and <code>tokenPriceUpdatedAt</code> exist for monitoring.</p>
 <p><strong>Example scenario.</strong> The team lists token X with a 1% fee but forgets to set its USD peg. Alice deposits 1 M X paying 0 fee. Nothing reverts, nothing is emitted; the treasury notices weeks later.</p>
 <p><strong>PoC evidence</strong> — <code>findings-B.ts</code> › F11: priced → <code>InsufficientPortalFee(1e18, 0)</code>; after <code>clearTokenPriceUSD</code> the same withdrawal succeeds at fee 0; a new portal for an unpriced token accepts a deposit at fee 0 with 1% configured.</p>
-<p><strong>Recommended fix</strong> (implemented as an opt-in). Keep fail-open as the default; give the admin a strict mode and surface the flag:</p>
-<div class="codehilite"><pre><span></span><code><span class="gi">+ bool public requireDynamicPricing;   // admin-set, default false</span>
-<span class="w"> </span> // _portalFeeFloor
-<span class="gd">- (floor,) = PrivacyPortalFeeLib.resolvePortalFee(...);</span>
-<span class="gi">+ (floor, usedDynamic) = PrivacyPortalFeeLib.resolvePortalFee(...);</span>
-<span class="gi">+ if (requireDynamicPricing &amp;&amp; !usedDynamic) revert OracleRateUnavailable();</span>
-</code></pre></div>
-
-<p>Operationally: alert on <code>usedDynamicPricing == false</code> for percentage-configured portals, and require a peg before <code>createPortal</code> in the deployment runbook.</p>
-<p><strong>Fix validation</strong> — not exercised by a test (behaviour-preserving by default); compiles in the patched stack.</p>
+<p><strong>Recommended fix: none in code.</strong> Rev 3 first proposed an opt-in <code>requireDynamicPricing</code> strict mode. The independent fix review <strong>rejected</strong> it and it was withdrawn: the fee floor is consulted on the <em>withdrawal</em> path too, so enabling the flag during an oracle outage would revert the exit path factory-wide (exactly the hazard that makes fail-open the right default), and the check sat after the <code>priceOracle == 0</code> early return, so it gave false assurance when no oracle was configured. Operational recommendation instead: alert on <code>estimate*Fees(...).usedDynamicPricing == false</code> for percentage-configured portals, and require a peg before <code>createPortal</code> in the deployment runbook. If a strict mode is ever wanted, scope it to deposits only and evaluate it before the early return.</p>
+<p><strong>Independent fix review.</strong> REJECT (fix withdrawn). Verdict on the finding unchanged: documented design choice, Informational.</p>
 <hr />
 <h3 id="12-setlimits-accepts-maxwithdraw-2minwithdraw-1-leaving-balances-in-the-gap-unredeemable">12. <code>setLimits</code> accepts <code>maxWithdraw &lt; 2·minWithdraw − 1</code>, leaving balances in the gap unredeemable</h3>
 <p><code>PrivacyPortal.setLimits</code> · rev 1 confidence 75 · <strong>Informational (admin misconfiguration)</strong></p>
@@ -536,6 +559,7 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <div class="codehilite"><pre><span></span><code><span class="gi">+ if (maxWithdraw != 0 &amp;&amp; minWithdraw &gt; 1 &amp;&amp; maxWithdraw &lt; 2 * minWithdraw - 1) revert InvalidLimitConfiguration();</span>
 </code></pre></div>
 
+<p><strong>Independent fix review.</strong> SHIP.</p>
 <p><strong>Fix validation</strong> — <code>fixes.ts</code> › X12: <code>(100, 150)</code> and <code>(100, 2·100 − 2 units)</code> rejected; <code>(100, 2·100 − 1 units)</code> and <code>(0, 0)</code> accepted.</p>
 <hr />
 <h3 id="13-wrap-charges-an-execution-time-fee-with-no-caller-supplied-bound">13. <code>wrap</code> charges an execution-time fee with no caller-supplied bound</h3>
@@ -544,26 +568,34 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <p><strong>Is it a real issue? Yes, bounded.</strong> Confirmed at <code>PrivacyPortal.sol:498</code> vs <code>:888-898</code>. Trigger is an operator fee change (the same semi-trusted role as #7) or an ordinary oracle move, which needs no privilege. Loss is capped by <code>maxFee</code>; if the squeeze pushes the mint budget under the inbox minimum the transaction reverts in production (<code>FeeManager.sol:164-170</code>; the mock inbox does not model minimums). <code>wrap</code> is the ERC-7984 integrator path; <code>deposit</code> remains the bounded primary path.</p>
 <p><strong>Example scenario.</strong> Alice's integration quotes 1.0 native and sends 1.5 (0.5 for the async mint). An operator raises the fee to 1.4% in the same block. <code>wrap</code> charges 1.4, leaves 0.1 for the mint leg; Alice overpays 0.4 with no revert and no way to have set a limit.</p>
 <p><strong>PoC evidence</strong> — <code>findings-B.ts</code> › F13: <code>deposit</code> with the stale quote reverts <code>InsufficientPortalFee</code>; <code>wrap</code> with the same value succeeds with <code>OperationFeesPaid.portalFee == 1.4e18</code> and <code>podFee</code> reduced by 0.4e18.</p>
-<p><strong>Recommended fix</strong> (implemented). A bounded variant; keep the ERC-7984-shaped <code>wrap</code> for compatibility but document it as unbounded:</p>
+<p><strong>Recommended fix</strong> (implemented). A bounded variant for integrators that can pass a bound, plus an admin cap on the ERC-7984-shaped <code>wrap</code> (which keeps its signature and is deprecated for direct use):</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">function</span><span class="w"> </span><span class="nv">wrapWithMaxFee</span><span class="p">(</span><span class="kt">address</span><span class="w"> </span><span class="nv">to</span><span class="p">,</span><span class="w"> </span><span class="kt">uint256</span><span class="w"> </span><span class="nv">amount</span><span class="p">,</span><span class="w"> </span><span class="kt">uint256</span><span class="w"> </span><span class="nv">mintCallbackFee</span><span class="p">,</span><span class="w"> </span><span class="kt">uint256</span><span class="w"> </span><span class="nv">maxPortalFee</span><span class="p">)</span><span class="w"> </span><span class="kt">external</span><span class="w"> </span><span class="kt">payable</span><span class="w"> </span>nonReentrant<span class="w"> </span><span class="kt">returns</span><span class="w"> </span><span class="p">(</span><span class="kt">bytes32</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="p">(</span><span class="kt">uint256</span><span class="w"> </span><span class="nv">portalFloor</span><span class="p">,)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>_portalFeeFloor<span class="p">(</span>amount<span class="p">,</span><span class="w"> </span><span class="kt">true</span><span class="p">);</span>
 <span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span>portalFloor<span class="w"> </span><span class="o">&gt;</span><span class="w"> </span>maxPortalFee<span class="p">)</span><span class="w"> </span>revert<span class="w"> </span>ExcessivePortalFee<span class="p">(</span>maxPortalFee<span class="p">,</span><span class="w"> </span>portalFloor<span class="p">);</span>
 <span class="w">    </span><span class="kt">return</span><span class="w"> </span>_deposit<span class="p">(</span>to<span class="p">,</span><span class="w"> </span>amount<span class="p">,</span><span class="w"> </span>portalFloor<span class="p">,</span><span class="w"> </span>mintCallbackFee<span class="p">);</span>
 <span class="p">}</span>
+
+<span class="kt">uint256</span><span class="w"> </span><span class="k">public </span><span class="nv">maxAutoWrapPortalFee</span><span class="p">;</span><span class="w">                       </span><span class="c1">// admin-set; 0 = no cap (current behaviour)</span>
+<span class="kt">function</span><span class="w"> </span><span class="nv">wrap</span><span class="p">(</span><span class="kt">address</span><span class="w"> </span><span class="nv">to</span><span class="p">,</span><span class="w"> </span><span class="kt">uint256</span><span class="w"> </span><span class="nv">amount</span><span class="p">,</span><span class="w"> </span><span class="kt">uint256</span><span class="w"> </span><span class="nv">mintCallbackFee</span><span class="p">)</span><span class="w"> </span><span class="kt">external</span><span class="w"> </span><span class="kt">payable</span><span class="w"> </span>nonReentrant<span class="w"> </span><span class="kt">returns</span><span class="w"> </span><span class="p">(</span><span class="kt">bytes32</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="p">(</span><span class="kt">uint256</span><span class="w"> </span><span class="nv">portalFloor</span><span class="p">,)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>_portalFeeFloor<span class="p">(</span>amount<span class="p">,</span><span class="w"> </span><span class="kt">true</span><span class="p">);</span>
+<span class="w">    </span><span class="kt">if</span><span class="w"> </span><span class="p">(</span>maxAutoWrapPortalFee<span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="m m-Decimal">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>portalFloor<span class="w"> </span><span class="o">&gt;</span><span class="w"> </span>maxAutoWrapPortalFee<span class="p">)</span><span class="w"> </span>revert<span class="w"> </span>ExcessivePortalFee<span class="p">(</span>maxAutoWrapPortalFee<span class="p">,</span><span class="w"> </span>portalFloor<span class="p">);</span>
+<span class="w">    </span><span class="kt">return</span><span class="w"> </span>_deposit<span class="p">(</span>to<span class="p">,</span><span class="w"> </span>amount<span class="p">,</span><span class="w"> </span>portalFloor<span class="p">,</span><span class="w"> </span>mintCallbackFee<span class="p">);</span>
+<span class="p">}</span>
 </code></pre></div>
 
-<p><strong>Fix validation</strong> — <code>fixes.ts</code> › X13: with a 1.0 bound the 1.4 floor reverts <code>ExcessivePortalFee</code>; with a 1.4 bound the wrap succeeds and charges 1.4.</p>
+<p><strong>Independent fix review.</strong> SHIP-WITH-CHANGES → applied. <code>wrapWithMaxFee</code> alone left the finding open because <code>wrap</code> is the entry point existing ERC-7984 integrations call; the reviewer asked for a deprecation note and an admin-settable cap that <code>wrap</code> enforces. Both added.</p>
+<p><strong>Fix validation</strong> — <code>fixes.ts</code> › X13: with a 1.0 bound the 1.4 floor reverts <code>ExcessivePortalFee</code>; with a 1.4 bound the wrap succeeds and charges 1.4; plain <code>wrap</code> still charges the live 1.4 floor by default and reverts once the admin sets <code>maxAutoWrapPortalFee = 1.0</code>.</p>
 <hr />
 <h3 id="14-escrow-burn-and-withdrawal-state-are-keyed-on-inbox-request-ids-that-are-unique-only-per-inbox-instance">14. Escrow, burn and withdrawal state are keyed on inbox request ids that are unique only per inbox instance</h3>
 <p><code>PrivacyPortal._deposit</code> / <code>PodERC20._setRequestStatus</code> · rev 1 confidence 70 · <strong class="sev sev-med">Medium</strong></p>
 <p><strong>Description.</strong> <code>depositEscrows[requestId]</code> and <code>burnInFlight[burnRequestId]</code> are written unconditionally and <code>PodERC20._setRequestStatus</code> does not guard writes of <code>Pending</code>, so if the admin re-points the pToken at a fresh inbox whose per-target nonce restarts, colliding ids overwrite live escrows, rewind terminal statuses, and can resurrect a stranded withdrawal's <code>transferRequestId</code> to <code>Success</code>, letting <code>triggerWithdrawalRelease</code> pay out collateral for a pToken transfer that never happened.</p>
-<p><strong>Is it a real issue? Yes.</strong> Every step is anchored in production code: <code>InboxBase._packRequestId</code> mixes only (source chain, target chain, nonce) with no inbox component (<code>InboxBase.sol:650-662</code>) and a fresh deployment restarts the per-target nonce at 1 (<code>:507</code>); escrows are assigned unconditionally (<code>PrivacyPortal.sol:420, :468</code>); <code>_setRequestStatus</code> guards only terminal writes (<code>PodERC20.sol:628-643</code>). Precondition narrows likelihood: a DEFAULT_ADMIN must <code>configurePToken</code> a live pToken to a <strong>newly deployed</strong> inbox (a proxy upgrade keeps address and nonce and is harmless). Where it fires the impact is severe and neither self-healing nor admin-recoverable. The <code>burnInFlightTotal</code> double-count sub-claim is plausible from inspection but was not exercised by the PoC.</p>
+<p><strong>Is it a real issue? Yes.</strong> Every step is anchored in production code: <code>InboxBase._packRequestId</code> mixes only (source chain, target chain, nonce) with no inbox component (<code>InboxBase.sol:650-662</code>) and a fresh deployment restarts the per-target nonce at 1 (<code>:507</code>); escrows are assigned unconditionally (<code>PrivacyPortal.sol:420, :468</code>); <code>_setRequestStatus</code> guards only terminal writes (<code>PodERC20.sol:628-643</code>). Precondition narrows likelihood: a DEFAULT_ADMIN must <code>configurePToken</code> a live pToken to a <strong>newly deployed</strong> inbox (a proxy upgrade keeps address and nonce and is harmless). Where it fires the impact is severe and neither self-healing nor admin-recoverable. The <code>burnInFlightTotal</code> double-count sub-claim, left unverified in rev 2, is now proven by <code>findings-B.ts</code> › F14b: a reissued burn id overwrites <code>burnInFlight[id]</code> while <code>burnInFlightTotal</code> is incremented twice, one reservation is orphaned forever (<code>UnknownBatchBurn</code> after finalization) and later batch burns hit <code>PendingBurnTooLow</code>.</p>
 <p><strong>Example scenario.</strong>
 1. Alice deposits 100 USDC (request nonce 2, <code>Success</code>). Later she requests a 50 USDC withdrawal (nonce 3); the COTI leg is delayed and stays <code>Pending</code>.
 2. The team migrates to a freshly deployed inbox and calls <code>configurePToken(pUSDC, newInbox, mother)</code>. The new inbox starts at nonce 1.
 3. Bob deposits twice. His second deposit takes nonce 2: it overwrites Alice's escrow record (Alice's refund claim now belongs to Bob) and rewinds her mint from <code>Success</code> to <code>Pending</code>. His third deposit takes nonce 3, Alice's withdrawal id.
 4. Bob's mint settles <code>Success</code>. That flips Alice's stranded withdrawal to <code>Success</code>; Carol calls <code>triggerWithdrawalRelease</code> and the portal pays Alice 50 USDC while her 50 pUSDC never moved on COTI. The portal is now under-collateralized and <code>pendingBurnAmount</code> claims pTokens it never received.</p>
-<p><strong>PoC evidence</strong> — <code>findings-B.ts</code> › F14 with the real id scheme: escrow overwritten, <code>Success → Pending</code> rewind, stranded withdrawal paid, <code>pendingBurnAmount</code> inflated.</p>
+<p><strong>PoC evidence</strong> — <code>findings-B.ts</code> › F14 with the real id scheme: escrow overwritten, <code>Success → Pending</code> rewind, stranded withdrawal paid, <code>pendingBurnAmount</code> inflated. F14b: burn-id collision leaves <code>burnInFlightTotal</code> permanently inflated by the first reservation.</p>
 <p><strong>Recommended fix</strong> (implemented). Make request ids single-use at the pToken, and refuse to overwrite live records at the portal:</p>
 <div class="codehilite"><pre><span></span><code><span class="w"> </span> // PodERC20._setRequestStatus
 <span class="gi">+ if (status == IPodERC20.RequestStatus.Pending &amp;&amp; current != IPodERC20.RequestStatus.None) {</span>
@@ -575,9 +607,123 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <span class="gi">+ if (burnInFlight[burnRequestId] != 0) revert RequestIdAlreadyUsed(burnRequestId);</span>
 </code></pre></div>
 
-<p>Consequence: a from-scratch inbox whose nonces overlap the pToken's history simply cannot be used for that pToken (deposits revert until the nonce passes the used range), which forces a correct migration instead of silent corruption. The inbox itself should also mix its own address into request ids.</p>
-<p><strong>Fix validation</strong> — <code>fixes.ts</code> › X14: after rotation, the first fresh nonce works; the colliding deposit reverts <code>RequestIdAlreadyUsed</code> before any portal state is written; Alice's escrow and <code>Success</code> status are intact; her stranded withdrawal stays <code>Pending</code> and cannot be released.</p>
+<p>Consequence (documented trade-off): a from-scratch inbox whose nonces overlap the pToken's history cannot be used for that pToken — every colliding send reverts until the new inbox's per-target nonce climbs past the highest id the pToken has seen — which is a temporary, loud DoS instead of silent corruption. The inbox itself should also mix its own address into request ids. The portal-side guards are unreachable through mint/burn because the pToken reverts first; they are belt-and-braces.</p>
+<p><strong>Independent fix review.</strong> SHIP. The reviewer called <code>_setRequestStatus</code> the right choke point (every send funnels through it, fail-closed, no extra SLOAD) and asked for the burn sub-claim to be proven and the DoS trade-off to be documented; both done.</p>
+<p><strong>Fix validation</strong> — <code>fixes.ts</code> › X14: after rotation, the first fresh nonce works; the colliding deposit reverts <code>RequestIdAlreadyUsed</code> before any portal state is written; Alice's escrow and <code>Success</code> status are intact; her stranded withdrawal stays <code>Pending</code> and cannot be released. X14b: a colliding burn id is refused and <code>burnInFlightTotal</code> is not inflated.</p>
 <hr />
+<h2 id="independent-fix-review-summary">Independent fix review — summary</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Real?</th>
+<th>Severity</th>
+<th>Fix verdict (first version)</th>
+<th>Change applied</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>REAL</td>
+<td>Medium</td>
+<td>SHIP-WITH-CHANGES</td>
+<td>owner re-target restricted to self (Y1)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>REAL (blacklist) / DESIGN (pause)</td>
+<td>Low</td>
+<td>SHIP-WITH-CHANGES</td>
+<td>payer checked at release; re-target refuses a listed payer</td>
+</tr>
+<tr>
+<td>3</td>
+<td>REAL</td>
+<td>Low</td>
+<td>SHIP</td>
+<td>NatSpec + "unless terminal" pause condition</td>
+</tr>
+<tr>
+<td>4</td>
+<td>REAL</td>
+<td>Medium</td>
+<td>SHIP-WITH-CHANGES</td>
+<td>try/catch probes (Y2), idempotent retire (Y4), <code>setPTokenMinter</code> guard</td>
+</tr>
+<tr>
+<td>5</td>
+<td>DESIGN-CHOICE</td>
+<td>Low</td>
+<td>SHIP</td>
+<td>—</td>
+</tr>
+<tr>
+<td>6</td>
+<td>DUPLICATE of #3</td>
+<td>Informational</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>7</td>
+<td>REAL</td>
+<td>Low</td>
+<td>SHIP</td>
+<td>— (deploy portal + factory together)</td>
+</tr>
+<tr>
+<td>8</td>
+<td>REAL</td>
+<td>Low</td>
+<td>SHIP</td>
+<td>—</td>
+</tr>
+<tr>
+<td>9</td>
+<td>REAL</td>
+<td>Low</td>
+<td>SHIP</td>
+<td>—</td>
+</tr>
+<tr>
+<td>10</td>
+<td>REAL</td>
+<td>Low</td>
+<td>SHIP</td>
+<td>—</td>
+</tr>
+<tr>
+<td>11</td>
+<td>DESIGN-CHOICE</td>
+<td>Informational</td>
+<td><strong>REJECT</strong></td>
+<td>fix withdrawn (Y3)</td>
+</tr>
+<tr>
+<td>12</td>
+<td>REAL (admin misconfiguration)</td>
+<td>Informational</td>
+<td>SHIP</td>
+<td>—</td>
+</tr>
+<tr>
+<td>13</td>
+<td>REAL</td>
+<td>Low</td>
+<td>SHIP-WITH-CHANGES</td>
+<td><code>wrap</code> deprecated + admin cap</td>
+</tr>
+<tr>
+<td>14</td>
+<td>REAL</td>
+<td>Medium</td>
+<td>SHIP</td>
+<td>burn sub-claim proven (F14b / X14b); DoS trade-off documented</td>
+</tr>
+</tbody>
+</table>
+<p>The reviewer agreed with every real / false-positive verdict of critique #1. Its four adversarial tests (Y1–Y4) against the first patched version all passed, i.e. all four defects were real; each is now covered by a regression test in <code>fixes.ts</code> and the corresponding change is marked <code>review change</code> in the patched sources. A remaining deployment note: <code>outstandingWithdrawalTotal</code> and <code>maxAutoWrapPortalFee</code> were inserted mid-contract in the patched copy; for an upgrade of live clones, append new storage at the end.</p>
 <h2 id="corrections-carried-from-rev-1-rev-2">Corrections carried from rev 1 / rev 2</h2>
 <ol>
 <li><strong>#8's framing</strong> ("kill destroys the permissionless refund") was wrong — a <code>Pending</code> mint was never permissionlessly refundable; the kill enables the admin refund.</li>
@@ -625,11 +771,11 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 <tbody>
 <tr>
 <td><code>test/portal-poc/findings-A.ts</code>, <code>findings-B.ts</code></td>
-<td>exploit PoCs on the unmodified contracts (15 tests)</td>
+<td>exploit PoCs on the unmodified contracts (16 tests)</td>
 </tr>
 <tr>
 <td><code>test/portal-poc/fixes.ts</code></td>
-<td>fix validations on the patched contracts (13 tests)</td>
+<td>fix validations on the patched contracts (15 tests, incl. Y1–Y4 regressions)</td>
 </tr>
 <tr>
 <td><code>test/portal-poc/helpers.ts</code></td>
@@ -645,7 +791,11 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 </tr>
 <tr>
 <td><code>test/portal-poc/contracts/patched/*Fixed.sol</code></td>
-<td>patched copies; every change marked <code>// FIX #n</code></td>
+<td>patched copies; every change marked <code>// FIX #n</code> / <code>review change</code></td>
+</tr>
+<tr>
+<td><code>audit/privacy-portal-critique-rev2.md</code>, <code>audit/privacy-portal-fix-review-rev3.md</code></td>
+<td>the two independent critiques, verbatim</td>
 </tr>
 <tr>
 <td><code>audit/diagrams/</code></td>

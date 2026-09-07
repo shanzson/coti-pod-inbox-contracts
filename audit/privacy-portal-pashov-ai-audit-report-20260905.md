@@ -22,14 +22,14 @@
 
 1. **Exploit PoCs (15 tests, all passing).** Every finding is a Hardhat test that drives the **unmodified** coti-contracts code — `PrivacyPortal`, `PrivacyPortalFactory`, `PodErc20MintableInitializable` (→ `PodErc20Mintable` → `PodERC20`), `PrivacyPortalFeeLib`, `PortalFeeOracle` and, for #5, `PodErc20CotiMother` — through constructor-passthrough harnesses that add no logic (`test/portal-poc/contracts/PortalHarnesses.sol`). The only stand-in is the source-chain inbox (`MockInboxForPortal.sol`): it reproduces the real request-id packing and per-target nonce of `InboxBase` and delivers callbacks as `msg.sender == inbox`, so the real `onlyInboxPeer` / `onlyInboxReturnLeg` gates, the real `transferCallback` / `transferError` / `invalidatePendingRequest` / `killStaleRequest` paths and real EIP-712 permits execute. Files: `test/portal-poc/findings-A.ts` (#1–#7), `findings-B.ts` (#8–#14).
 2. **Independent critique #1** (separate session, no access to rev 1 reasoning): re-ran the suite, re-read the code, judged precondition realism, documented-design status, existing mitigations and fix implementability. Its verdict vocabulary: `CONFIRMED`, `CONFIRMED-DOWNGRADED`, `DESIGN-CHOICE`, `DUPLICATE`, `NOT-REPRODUCED`.
-3. **Fixes implemented and validated (rev 3).** One concrete fix per finding was applied to a copy of the three contracts (`test/portal-poc/contracts/patched/*Fixed.sol`, every change marked `// FIX #n`). `test/portal-poc/fixes.ts` re-runs each exploit scenario against the patched stack (13 tests): the exploit must fail and the legitimate path must still work.
-4. **Independent critique #2** (rev 3, separate session): re-judged real-issue vs false-positive from the code and reviewed every fix for correctness, completeness and new risk. Its per-finding verdicts are quoted under *Independent fix review*.
+3. **Fixes implemented and validated (rev 3).** One concrete fix per finding was applied to a copy of the three contracts (`test/portal-poc/contracts/patched/*Fixed.sol`, every change marked `// FIX #n`, review-driven changes marked `review change`). `test/portal-poc/fixes.ts` re-runs each exploit scenario against the patched stack (15 tests, including regressions for the reviewer's adversarial cases Y1–Y4): the exploit must fail and the legitimate path must still work.
+4. **Independent critique #2** (rev 3, separate session): re-judged real-issue vs false-positive from the code, reviewed every fix for correctness, completeness and new risk, and wrote four adversarial tests against the patched code. It agreed with every real/false-positive verdict, shipped 8 fixes as-is, required changes on 4 (#1, #2, #4, #13) and rejected 1 (#11). All required changes were applied and re-tested; the rejected fix was withdrawn. Its per-finding verdict is quoted under *Independent fix review*.
 
 ```
 export SOLC_NATIVE=/path/to/solc-static-linux   # 0.8.28+commit.7893614a
 NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.portal-poc.ts test \
   test/portal-poc/findings-A.ts test/portal-poc/findings-B.ts test/portal-poc/fixes.ts
-# → 28 passing: 15 exploit PoCs on the original code, 13 fix validations on the patched code
+# → 31 passing: 16 exploit PoCs on the original code, 15 fix validations on the patched code
 ```
 
 **Severity policy.** Likelihood × impact, with the *who must act* precondition weighed explicitly. Rev 1 confidence numbers are kept for traceability only; the **Final severity** column supersedes them.
@@ -40,22 +40,22 @@ NODE_OPTIONS='--max-old-space-size=8192' npx hardhat --config hardhat.config.por
 
 | # | Finding | Real issue? | Final severity | Fix (patched, `// FIX #n`) | Fix validated |
 |---|---|---|---|---|---|
-| 1 | Withdrawal stuck after pToken transfer Success | **Yes** | **Medium** | WETH fallback on ETH-send failure + owner/admin `retargetStuckWithdrawal` | ✔ X1a, X1b |
-| 2 | Blacklist not enforced on the release leg | Yes (blacklist half); pause half is intended | **Low** | blacklist check in `_releaseWithdrawal` (via `bindingFactory`); pause deliberately not checked | ✔ X2 |
+| 1 | Withdrawal stuck after pToken transfer Success | **Yes** | **Medium** | WETH fallback on ETH-send failure + `retargetStuckWithdrawal` (owner → self only; admin while paused → anywhere) | ✔ X1a, X1b |
+| 2 | Blacklist not enforced on the release leg | Yes (blacklist half); pause half is intended | **Low** | recipient **and** payer blacklist check in `_releaseWithdrawal` (via `bindingFactory`); no route-around via re-target; pause deliberately not checked | ✔ X2 |
 | 3 | Remount minter rotation bricks `adminRefundPendingDeposit` | Yes, recoverable | **Low** | owner-authorized `invalidatePendingRequest` + factory forwarder | ✔ X3 |
-| 4 | Cross-factory remount skips every old-portal guard | **Yes** | **Medium** | authority read from the token; previous portal must be paused **and** retired; `retirePortal` | ✔ X4 |
+| 4 | Cross-factory remount skips every old-portal guard | **Yes** | **Medium** | authority read from the token (try/catch probes); previous portal must be paused **and** retired; `retirePortal` (re-entrant-safe); `setPTokenMinter` needs a paused portal | ✔ X4, Y2/Y4 |
 | 5 | `createPortal` live before COTI registration | Documented design choice with a real window | **Low** | new clone starts paused (`pauseByFactory`) | ✔ X5 |
 | 6 | Remount has no in-flight-escrow check | Duplicate of #3 | Informational | covered by #3; test-mock gap noted | — |
 | 7 | Operator freezes withdrawals via unbounded `fixedFee` | Yes | **Low** | admin-set `maxOperatorFixedFee` ceiling on operator setters | ✔ X7 |
 | 8 | `refundFailedDeposit` rejects `Failed` | Yes, framing corrected | **Low** | admin refund of a terminal `Failed` mint no longer needs a portal pause | ✔ X8 |
 | 9 | Deposit limits / fee on requested vs measured amount | Yes, narrow | **Low** | checks evaluated on `received` | ✔ X9 |
 | 10 | `rescueERC20` drains collateral committed to pending withdrawals | Yes, recoverable | **Low** | `outstandingWithdrawalTotal` reserve | ✔ X10 |
-| 11 | Fee floor collapses to `fixedFee`/0 on zero oracle rate | Documented fail-open | Informational | optional `requireDynamicPricing` strict mode (default off) | proposed |
+| 11 | Fee floor collapses to `fixedFee`/0 on zero oracle rate | Documented fail-open | Informational | **no code change** (a strict-mode flag was proposed, then withdrawn after review: it would brick the exit path on an oracle outage); monitor `usedDynamicPricing` | — |
 | 12 | `setLimits` allows an unpartitionable withdraw window | Admin misconfiguration | Informational | `maxWithdraw >= 2·minWithdraw − 1` rule | ✔ X12 |
-| 13 | `wrap` has no caller-side fee bound | Yes | **Low** | `wrapWithMaxFee(..., maxPortalFee)` | ✔ X13 |
-| 14 | Request-id reuse across inbox rotation | **Yes** | **Medium** | single-use request ids in `PodERC20` + escrow/burn overwrite guards | ✔ X14 |
+| 13 | `wrap` has no caller-side fee bound | Yes | **Low** | `wrapWithMaxFee(..., maxPortalFee)` + admin cap `maxAutoWrapPortalFee` on the ERC-7984 `wrap` (deprecated for direct use) | ✔ X13 |
+| 14 | Request-id reuse across inbox rotation | **Yes** | **Medium** | single-use request ids in `PodERC20` + escrow/burn overwrite guards (burn double-count sub-claim now proven on the original code) | ✔ X14, X14b |
 
-No Critical or High. Three Medium (#1, #4, #14), all with implemented and test-validated fixes.
+No Critical or High. Three Medium (#1, #4, #14), all with implemented, independently reviewed and test-validated fixes.
 
 ---
 
@@ -95,7 +95,7 @@ No Critical or High. Three Medium (#1, #4, #14), all with implemented and test-v
   }
 ```
 
-(b) Let the withdrawal owner (or a factory admin while paused) re-target a withdrawal that is provably stuck. Only the destination changes; user, amount, request id and the `Success` precondition are untouched, and the new recipient must pass the same blacklist as a fresh request:
+(b) Let the withdrawal owner pull a provably stuck payout **back to themself**, or let a factory admin (portal paused) re-target it anywhere. Only the destination changes; user, amount, request id and the `Success` precondition are untouched; payer and new recipient must pass the blacklist:
 
 ```solidity
 function retargetStuckWithdrawal(bytes32 withdrawalId, address newRecipient) external nonReentrant {
@@ -103,11 +103,14 @@ function retargetStuckWithdrawal(bytes32 withdrawalId, address newRecipient) ext
     Withdrawal storage withdrawal = withdrawals[withdrawalId];
     if (withdrawal.user == address(0)) revert UnknownWithdrawal(withdrawalId);
     if (withdrawal.status != WithdrawalStatus.TransferPending) revert WithdrawalNotPending(withdrawalId, withdrawal.status);
+    IPrivacyPortalFactory ctrl = _controllerFactory();
     bool isOwner = msg.sender == withdrawal.user;
-    bool isAdmin = _controllerFactory().isAdmin(msg.sender) && paused();
+    bool isAdmin = ctrl.isAdmin(msg.sender) && paused();
     if (!isOwner && !isAdmin) revert NotWithdrawalOwner(withdrawalId, msg.sender);
+    if (!isAdmin && newRecipient != withdrawal.user) revert RetargetOnlyToSelf(withdrawalId);   // review change (Y1)
     if (pToken.requests(withdrawal.transferRequestId).status != IPodERC20.RequestStatus.Success) revert WithdrawalNotStuck(withdrawalId);
-    if (blacklisted[newRecipient] || _controllerFactory().blacklisted(newRecipient)) revert AddressBlacklisted(newRecipient);
+    if (blacklisted[withdrawal.user] || ctrl.blacklisted(withdrawal.user)) revert AddressBlacklisted(withdrawal.user); // review change
+    if (blacklisted[newRecipient] || ctrl.blacklisted(newRecipient)) revert AddressBlacklisted(newRecipient);
     address old = withdrawal.recipient;
     withdrawal.recipient = newRecipient;
     emit WithdrawalRetargeted(withdrawalId, old, newRecipient);
@@ -116,7 +119,9 @@ function retargetStuckWithdrawal(bytes32 withdrawalId, address newRecipient) ext
 
 Rev 1's "Option A" alone was only half a fix: re-wrapping addresses the native case but not an ERC-20 transfer that itself reverts. Note also that the release path now runs inside the miner's callback gas budget; if that budget is too small for the WETH fallback the hook still fails harmlessly and `triggerWithdrawalRelease` completes it.
 
-**Fix validation** — `fixes.ts` › X1a: the rejecting recipient ends up holding WETH, the withdrawal is `Released`, `pendingBurnAmount == amount`. X1b: after the issuer blocklist, a stranger cannot re-target (`NotWithdrawalOwner`), a blacklisted destination is refused (`AddressBlacklisted`), a not-yet-settled withdrawal is refused (`WithdrawalNotStuck`), Alice re-targets to a clean address and anyone releases it.
+**Independent fix review.** SHIP-WITH-CHANGES → applied. The reviewer's adversarial case Y1: the first version let the requester re-target *any* third-party payout, i.e. revoke a payment that might still be deliverable (and the window can be opened on purpose by under-funding the callback fee). The owner path is now self-only; arbitrary destinations need a factory admin with the portal paused. Fix (a) was judged correct as-is (CEI holds, return data discarded, both entry points `nonReentrant`).
+
+**Fix validation** — `fixes.ts` › X1a: the rejecting recipient ends up holding WETH, the withdrawal is `Released`, `pendingBurnAmount == amount`. X1b: a not-yet-settled withdrawal cannot be re-targeted (`WithdrawalNotStuck`); a stranger cannot (`NotWithdrawalOwner`); the owner cannot redirect to a third party (`RetargetOnlyToSelf`) but can pull it back to themself and anyone releases it; when the *owner* is the blocked party, the admin re-targets while paused and the release completes.
 
 ---
 
@@ -143,14 +148,16 @@ Rev 1's "Option A" alone was only half a fix: re-wrapping addresses the native c
   }
 + // FIX #2: compliance applies at settlement too; pause deliberately NOT checked (in-flight settlement on a
 + //         paused portal is the documented migration model).
-+ if (blacklisted[withdrawal.recipient] || _controllerFactory().blacklisted(withdrawal.recipient)) {
-+     revert AddressBlacklisted(withdrawal.recipient);
-+ }
++ IPrivacyPortalFactory ctrl = _controllerFactory();
++ if (blacklisted[withdrawal.recipient] || ctrl.blacklisted(withdrawal.recipient)) revert AddressBlacklisted(withdrawal.recipient);
++ if (blacklisted[withdrawal.user]      || ctrl.blacklisted(withdrawal.user))      revert AddressBlacklisted(withdrawal.user); // review change
 ```
 
-A listed recipient's withdrawal then sits in the same state as #1 by design (funds frozen under compliance control); de-listing, or the #1 re-target path for a legitimately mis-listed recipient, releases it.
+A listed party's withdrawal then sits in the same state as #1 by design (funds frozen under compliance control); de-listing, or the #1 admin re-target path for a legitimately mis-listed recipient, releases it. `retargetStuckWithdrawal` refuses a listed payer, so the control cannot be routed around.
 
-**Fix validation** — `fixes.ts` › X2: a recipient listed after the request is not paid (hook fails, trigger reverts `AddressBlacklisted`, balance unchanged); after de-listing the release succeeds, and it still succeeds while the portal is paused.
+**Independent fix review.** SHIP-WITH-CHANGES → applied: (i) the payer (`withdrawal.user`) is now checked too, matching rev 1's own Option A; (ii) the re-target path applies the blacklist to the payer, closing the route-around the reviewer demonstrated. The reviewer confirmed the important non-regression: in-flight withdrawals still settle on a paused, retired portal (X10).
+
+**Fix validation** — `fixes.ts` › X2: a recipient listed after the request is not paid (hook fails, trigger reverts `AddressBlacklisted`, balance unchanged); a listed *payer* is not paid and cannot re-target to themself; after de-listing both withdrawals release, while the portal is paused.
 
 ---
 
@@ -188,6 +195,8 @@ A listed recipient's withdrawal then sits in the same state as #1 by design (fun
 
 `adminRefundPendingDeposit` keeps calling `invalidatePendingRequest` while the mint is `Pending` (so the direct path still works for a live portal); after a remount the admin first calls the forwarder, the request becomes `Failed`, and the refund skips that branch.
 
+**Independent fix review.** SHIP. The reviewer noted this grants DEFAULT_ADMIN no new capability: `killStaleRequest` is already owner-only and `setRequestKillMinAge(0)` already removes the age gate in one transaction, so the forwarder is a convenience, not an escalation. Two nits applied: the `@dev` no longer claims `whenPaused`, and the pause requirement is expressed as "unless the request is terminal" (so an unreachable `None` status is not treated as terminal).
+
 **Fix validation** — `fixes.ts` › X3: after the remount the direct refund still reverts `OnlyMinter`; a stranger cannot use the forwarder; the admin's forwarder call sets `Failed`; the retired portal's refund then succeeds immediately.
 
 ---
@@ -209,27 +218,46 @@ A listed recipient's withdrawal then sits in the same state as #1 by design (fun
 
 **PoC evidence** — `findings-A.ts` › F4 with two real factories and different admins: minter on B, A unpaused/undetached, deposit on A → `OnlyMinter`, withdrawal on A `Released`, F2 admin `A.pause()` → `OnlyFactoryAdmin`, B unpaused with zero collateral → withdrawal accepted, release reverts `ERC20InsufficientBalance`.
 
-**Recommended fix** (implemented). Read authority from the token, not from the local mapping, and refuse to attach a pToken whose current minter is a live portal anywhere; give the old factory's admin a way to retire a paused portal without cloning:
+**Recommended fix** (implemented). Read authority from the token, not from the local mapping; refuse to attach a pToken whose current minter is a live portal anywhere; give the old factory's admin a way to retire a paused portal without cloning; and close the `setPTokenMinter` back door:
 
 ```diff
-+ address prevMinter = PodErc20Mintable(payable(existingPToken)).minter();
-+ if (oldPortal == address(0) && prevMinter != address(0) && prevMinter.code.length != 0) {
-+     if (!IPrivacyPortal(prevMinter).paused()) revert OldPortalNotPaused(prevMinter);
-+     if (PrivacyPortal(payable(prevMinter)).factory() != address(0)) revert OldPortalNotRetired(prevMinter);
-+     bool prevNative = IPrivacyPortal(prevMinter).nativeWrappedUnderlying();
+  // createPortalWithExistingPToken, before cloning
++ if (oldPortal == address(0)) _requirePreviousMinterClosed(existingPToken, nativeWrappedUnderlying, true);
+  // same-factory path: do not retire a portal twice
+- IPrivacyPortal(oldPortal).retireDepositsForUpgrade();
++ if (PrivacyPortal(payable(oldPortal)).factory() != address(0)) IPrivacyPortal(oldPortal).retireDepositsForUpgrade();
+
++ /// Probes the pToken's current minter with try/catch: a minter that is not a portal cannot brick the token.
++ function _requirePreviousMinterClosed(address existingPToken, bool nativeWrappedUnderlying, bool requireRetired) private view {
++     address prevMinter = PodErc20Mintable(payable(existingPToken)).minter();
++     if (prevMinter == address(0) || prevMinter.code.length == 0) return;
++     bool isPaused; try IPrivacyPortal(prevMinter).paused() returns (bool p) { isPaused = p; } catch { return; }
++     address prevFactory; try PrivacyPortal(payable(prevMinter)).factory() returns (address f) { prevFactory = f; } catch { return; }
++     bool prevNative; try IPrivacyPortal(prevMinter).nativeWrappedUnderlying() returns (bool n) { prevNative = n; } catch { return; }
++     if (!isPaused) revert OldPortalNotPaused(prevMinter);
++     if (requireRetired && prevFactory != address(0)) revert OldPortalNotRetired(prevMinter);
 +     if (prevNative != nativeWrappedUnderlying) revert NativeWrapMismatch(prevMinter, prevNative, nativeWrappedUnderlying);
 + }
-  portal = Clones.clone(portalImplementation);
 
-+ /// Old factory's admin: detach a paused portal of this factory before handing the pToken to another factory.
++ /// Old factory's admin: detach a paused portal before handing the pToken to another factory.
 + function retirePortal(address portal) external onlyRole(DEFAULT_ADMIN_ROLE) {
 +     if (PrivacyPortal(payable(portal)).factory() != address(this)) revert PortalNotFromThisFactory(portal);
 +     if (!IPrivacyPortal(portal).paused()) revert OldPortalNotPaused(portal);
 +     IPrivacyPortal(portal).retireDepositsForUpgrade();
 + }
+
+  // setPTokenMinter: the emergency rotation may not leave a live, unpaused portal advertising deposits it cannot mint for
++ address current = PodErc20Mintable(payable(pToken_)).minter();
++ if (current != newMinter_ && current != address(0) && current.code.length != 0) {
++     try IPrivacyPortal(current).paused() returns (bool p) { if (!p) revert OldPortalNotPaused(current); } catch {}
++ }
 ```
 
-**Fix validation** — `fixes.ts` › X4: F2's remount reverts `OldPortalNotPaused(A)`; after A is paused it reverts `OldPortalNotRetired(A)`; a stranger cannot `retirePortal`; after F1's admin retires A the remount succeeds, the minter rotates, and deposits on A are refused.
+`PrivacyPortal.retireDepositsForUpgrade` is made idempotent (a detached portal accepts a repeat call from its binding factory as a no-op), so `retirePortal` is not a one-way door.
+
+**Independent fix review.** SHIP-WITH-CHANGES → applied. The first version had three defects the reviewer proved with tests: (Y2) unguarded `paused()` / `factory()` / `nativeWrappedUnderlying()` probes on an arbitrary minter would revert forever for a non-portal minter, bricking the pToken on every factory; (Y4) `retirePortal` cleared `factory`, after which the same factory's own remount reverted `OnlyPortalFactory`; and `setPTokenMinter` still rotated the minter with no pause coupling, bypassing the guard entirely. All three are fixed above.
+
+**Fix validation** — `fixes.ts` › X4: F2's remount reverts `OldPortalNotPaused(A)`; after A is paused it reverts `OldPortalNotRetired(A)`; a stranger cannot `retirePortal`; after F1's admin retires A the remount succeeds, the minter rotates, and deposits on A are refused. Y2/Y4 regression: `setPTokenMinter` away from a live portal reverts `OldPortalNotPaused` and works once paused; a non-portal minter is tolerated; a same-factory remount after `retirePortal` succeeds.
 
 ---
 
@@ -257,6 +285,8 @@ A listed recipient's withdrawal then sits in the same state as #1 by design (fun
 
 `unpause()` still works because `factory != 0` (`PrivacyPortal.sol:272-277`). Also fix the NatSpec.
 
+**Independent fix review.** SHIP.
+
 **Fix validation** — `fixes.ts` › X5: the clone is paused after `createPortal`; deposits revert `DepositsPaused`; after the admin unpauses, deposits work.
 
 ---
@@ -265,7 +295,7 @@ A listed recipient's withdrawal then sits in the same state as #1 by design (fun
 
 `PrivacyPortalFactory.createPortalWithExistingPToken` · rev 1 confidence 80 · **Informational (duplicate of #3)**
 
-Same root cause, precondition, impact and fix as #3; it should have been merged at rev 1's dedup stage. The genuinely new content is a **test-coverage** observation: `MockPodErc20MintableForPortal` has no `invalidatePendingRequest` at all, and `MockPodERC20ForPortal.invalidatePendingRequest` has no minter gate, so the shipped suite cannot catch #3 (`findings-A.ts` › F6 demonstrates both). Recommendation: add the minter gate to the mocks and a remount-with-Pending-escrow test; the #3 fix covers the behaviour.
+Same root cause, precondition, impact and fix as #3; it should have been merged at rev 1's dedup stage. The genuinely new content is a **test-coverage** observation: `MockPodErc20MintableForPortal` has no `invalidatePendingRequest` at all, and `MockPodERC20ForPortal.invalidatePendingRequest` has no minter gate, so the shipped suite cannot catch #3 (`findings-A.ts` › F6 demonstrates both). Recommendation: add the minter gate to the mocks and a remount-with-Pending-escrow test; the #3 fix covers the behaviour. Independent fix review: agrees it is a duplicate.
 
 ---
 
@@ -295,6 +325,8 @@ Same root cause, precondition, impact and fix as #3; it should have been merged 
   // called first in setDefaultDepositFee / setDefaultWithdrawFee; the portal setters read the ceiling via bindingFactory
 ```
 
+**Independent fix review.** SHIP. Deployment note from the reviewer: the patched portal hard-calls `bindingFactory.maxOperatorFixedFee()`, so the portal and factory implementations must be upgraded together (a fixed portal on an old factory would brick both fee setters).
+
 **Fix validation** — `fixes.ts` › X7: operator's huge `fixedFee` reverts `FixedFeeAboveCeiling` on both portal and factory; an in-ceiling operator fee is accepted; the admin may exceed it; withdrawals keep working.
 
 ---
@@ -320,13 +352,18 @@ Same root cause, precondition, impact and fix as #3; it should have been merged 
 - function adminRefundPendingDeposit(bytes32 requestId) external override onlyFactoryAdmin nonReentrant whenPaused {
 + function adminRefundPendingDeposit(bytes32 requestId) external override onlyFactoryAdmin nonReentrant {
       ...
-      if (mintStatus == IPodERC20.RequestStatus.Pending) {
-+         if (!paused()) revert ExpectedPause();      // FIX #8: only a Pending mint needs the pause
-          pToken.invalidatePendingRequest(requestId);
-      }
+-     if (mintStatus == IPodERC20.RequestStatus.Pending) {
+-         pToken.invalidatePendingRequest(requestId);
+-     }
++     if (mintStatus != IPodERC20.RequestStatus.Failed && mintStatus != IPodERC20.RequestStatus.SystemFailed) {
++         if (!paused()) revert ExpectedPause();          // FIX #8: only a not-yet-terminal mint needs the pause
++         if (mintStatus == IPodERC20.RequestStatus.Pending) pToken.invalidatePendingRequest(requestId);
++     }
 ```
 
 Keeping the permissionless path `SystemFailed`-only is correct: an app-level `Failed` (raise) must stay admin-reviewed. Also write or remove the dead `DepositEscrowStatus.Failed` branch.
+
+**Independent fix review.** SHIP.
 
 **Fix validation** — `fixes.ts` › X8: an unpaused admin refund of a `Pending` mint still reverts `ExpectedPause`; after the kill the refund succeeds with the portal open.
 
@@ -356,6 +393,8 @@ Keeping the permissionless path `SystemFailed`-only is correct: an app-level `Fa
 + _checkDepositLimits(received);                       // FIX #9
 + _validateAndCollectPortalFee(portalFee, received, true);
 ```
+
+**Independent fix review.** SHIP.
 
 **Fix validation** — `fixes.ts` › X9: a 100 deposit on the 5% token reverts `DepositBelowMinimum`; a 106 deposit nets 100.7 and is accepted; the fee floor on `received` is lower than on the requested amount, and one wei below it reverts.
 
@@ -388,6 +427,8 @@ Keeping the permissionless path `SystemFailed`-only is correct: an app-level `Fa
 + }
 ```
 
+**Independent fix review.** SHIP.
+
 **Fix validation** — `fixes.ts` › X10: full-balance rescue reverts `RescueExceedsFreeCollateral`; rescuing the free part succeeds; the pending withdrawal still releases and the counter returns to 0.
 
 ---
@@ -404,19 +445,9 @@ Keeping the permissionless path `SystemFailed`-only is correct: an app-level `Fa
 
 **PoC evidence** — `findings-B.ts` › F11: priced → `InsufficientPortalFee(1e18, 0)`; after `clearTokenPriceUSD` the same withdrawal succeeds at fee 0; a new portal for an unpriced token accepts a deposit at fee 0 with 1% configured.
 
-**Recommended fix** (implemented as an opt-in). Keep fail-open as the default; give the admin a strict mode and surface the flag:
+**Recommended fix: none in code.** Rev 3 first proposed an opt-in `requireDynamicPricing` strict mode. The independent fix review **rejected** it and it was withdrawn: the fee floor is consulted on the *withdrawal* path too, so enabling the flag during an oracle outage would revert the exit path factory-wide (exactly the hazard that makes fail-open the right default), and the check sat after the `priceOracle == 0` early return, so it gave false assurance when no oracle was configured. Operational recommendation instead: alert on `estimate*Fees(...).usedDynamicPricing == false` for percentage-configured portals, and require a peg before `createPortal` in the deployment runbook. If a strict mode is ever wanted, scope it to deposits only and evaluate it before the early return.
 
-```diff
-+ bool public requireDynamicPricing;   // admin-set, default false
-  // _portalFeeFloor
-- (floor,) = PrivacyPortalFeeLib.resolvePortalFee(...);
-+ (floor, usedDynamic) = PrivacyPortalFeeLib.resolvePortalFee(...);
-+ if (requireDynamicPricing && !usedDynamic) revert OracleRateUnavailable();
-```
-
-Operationally: alert on `usedDynamicPricing == false` for percentage-configured portals, and require a peg before `createPortal` in the deployment runbook.
-
-**Fix validation** — not exercised by a test (behaviour-preserving by default); compiles in the patched stack.
+**Independent fix review.** REJECT (fix withdrawn). Verdict on the finding unchanged: documented design choice, Informational.
 
 ---
 
@@ -438,6 +469,8 @@ Operationally: alert on `usedDynamicPricing == false` for percentage-configured 
 + if (maxWithdraw != 0 && minWithdraw > 1 && maxWithdraw < 2 * minWithdraw - 1) revert InvalidLimitConfiguration();
 ```
 
+**Independent fix review.** SHIP.
+
 **Fix validation** — `fixes.ts` › X12: `(100, 150)` and `(100, 2·100 − 2 units)` rejected; `(100, 2·100 − 1 units)` and `(0, 0)` accepted.
 
 ---
@@ -454,7 +487,7 @@ Operationally: alert on `usedDynamicPricing == false` for percentage-configured 
 
 **PoC evidence** — `findings-B.ts` › F13: `deposit` with the stale quote reverts `InsufficientPortalFee`; `wrap` with the same value succeeds with `OperationFeesPaid.portalFee == 1.4e18` and `podFee` reduced by 0.4e18.
 
-**Recommended fix** (implemented). A bounded variant; keep the ERC-7984-shaped `wrap` for compatibility but document it as unbounded:
+**Recommended fix** (implemented). A bounded variant for integrators that can pass a bound, plus an admin cap on the ERC-7984-shaped `wrap` (which keeps its signature and is deprecated for direct use):
 
 ```solidity
 function wrapWithMaxFee(address to, uint256 amount, uint256 mintCallbackFee, uint256 maxPortalFee) external payable nonReentrant returns (bytes32) {
@@ -462,9 +495,18 @@ function wrapWithMaxFee(address to, uint256 amount, uint256 mintCallbackFee, uin
     if (portalFloor > maxPortalFee) revert ExcessivePortalFee(maxPortalFee, portalFloor);
     return _deposit(to, amount, portalFloor, mintCallbackFee);
 }
+
+uint256 public maxAutoWrapPortalFee;                       // admin-set; 0 = no cap (current behaviour)
+function wrap(address to, uint256 amount, uint256 mintCallbackFee) external payable nonReentrant returns (bytes32) {
+    (uint256 portalFloor,) = _portalFeeFloor(amount, true);
+    if (maxAutoWrapPortalFee != 0 && portalFloor > maxAutoWrapPortalFee) revert ExcessivePortalFee(maxAutoWrapPortalFee, portalFloor);
+    return _deposit(to, amount, portalFloor, mintCallbackFee);
+}
 ```
 
-**Fix validation** — `fixes.ts` › X13: with a 1.0 bound the 1.4 floor reverts `ExcessivePortalFee`; with a 1.4 bound the wrap succeeds and charges 1.4.
+**Independent fix review.** SHIP-WITH-CHANGES → applied. `wrapWithMaxFee` alone left the finding open because `wrap` is the entry point existing ERC-7984 integrations call; the reviewer asked for a deprecation note and an admin-settable cap that `wrap` enforces. Both added.
+
+**Fix validation** — `fixes.ts` › X13: with a 1.0 bound the 1.4 floor reverts `ExcessivePortalFee`; with a 1.4 bound the wrap succeeds and charges 1.4; plain `wrap` still charges the live 1.4 floor by default and reverts once the admin sets `maxAutoWrapPortalFee = 1.0`.
 
 ---
 
@@ -474,7 +516,7 @@ function wrapWithMaxFee(address to, uint256 amount, uint256 mintCallbackFee, uin
 
 **Description.** `depositEscrows[requestId]` and `burnInFlight[burnRequestId]` are written unconditionally and `PodERC20._setRequestStatus` does not guard writes of `Pending`, so if the admin re-points the pToken at a fresh inbox whose per-target nonce restarts, colliding ids overwrite live escrows, rewind terminal statuses, and can resurrect a stranded withdrawal's `transferRequestId` to `Success`, letting `triggerWithdrawalRelease` pay out collateral for a pToken transfer that never happened.
 
-**Is it a real issue? Yes.** Every step is anchored in production code: `InboxBase._packRequestId` mixes only (source chain, target chain, nonce) with no inbox component (`InboxBase.sol:650-662`) and a fresh deployment restarts the per-target nonce at 1 (`:507`); escrows are assigned unconditionally (`PrivacyPortal.sol:420, :468`); `_setRequestStatus` guards only terminal writes (`PodERC20.sol:628-643`). Precondition narrows likelihood: a DEFAULT_ADMIN must `configurePToken` a live pToken to a **newly deployed** inbox (a proxy upgrade keeps address and nonce and is harmless). Where it fires the impact is severe and neither self-healing nor admin-recoverable. The `burnInFlightTotal` double-count sub-claim is plausible from inspection but was not exercised by the PoC.
+**Is it a real issue? Yes.** Every step is anchored in production code: `InboxBase._packRequestId` mixes only (source chain, target chain, nonce) with no inbox component (`InboxBase.sol:650-662`) and a fresh deployment restarts the per-target nonce at 1 (`:507`); escrows are assigned unconditionally (`PrivacyPortal.sol:420, :468`); `_setRequestStatus` guards only terminal writes (`PodERC20.sol:628-643`). Precondition narrows likelihood: a DEFAULT_ADMIN must `configurePToken` a live pToken to a **newly deployed** inbox (a proxy upgrade keeps address and nonce and is harmless). Where it fires the impact is severe and neither self-healing nor admin-recoverable. The `burnInFlightTotal` double-count sub-claim, left unverified in rev 2, is now proven by `findings-B.ts` › F14b: a reissued burn id overwrites `burnInFlight[id]` while `burnInFlightTotal` is incremented twice, one reservation is orphaned forever (`UnknownBatchBurn` after finalization) and later batch burns hit `PendingBurnTooLow`.
 
 **Example scenario.**
 1. Alice deposits 100 USDC (request nonce 2, `Success`). Later she requests a 50 USDC withdrawal (nonce 3); the COTI leg is delayed and stays `Pending`.
@@ -482,7 +524,7 @@ function wrapWithMaxFee(address to, uint256 amount, uint256 mintCallbackFee, uin
 3. Bob deposits twice. His second deposit takes nonce 2: it overwrites Alice's escrow record (Alice's refund claim now belongs to Bob) and rewinds her mint from `Success` to `Pending`. His third deposit takes nonce 3, Alice's withdrawal id.
 4. Bob's mint settles `Success`. That flips Alice's stranded withdrawal to `Success`; Carol calls `triggerWithdrawalRelease` and the portal pays Alice 50 USDC while her 50 pUSDC never moved on COTI. The portal is now under-collateralized and `pendingBurnAmount` claims pTokens it never received.
 
-**PoC evidence** — `findings-B.ts` › F14 with the real id scheme: escrow overwritten, `Success → Pending` rewind, stranded withdrawal paid, `pendingBurnAmount` inflated.
+**PoC evidence** — `findings-B.ts` › F14 with the real id scheme: escrow overwritten, `Success → Pending` rewind, stranded withdrawal paid, `pendingBurnAmount` inflated. F14b: burn-id collision leaves `burnInFlightTotal` permanently inflated by the first reservation.
 
 **Recommended fix** (implemented). Make request ids single-use at the pToken, and refuse to overwrite live records at the portal:
 
@@ -497,11 +539,34 @@ function wrapWithMaxFee(address to, uint256 amount, uint256 mintCallbackFee, uin
 + if (burnInFlight[burnRequestId] != 0) revert RequestIdAlreadyUsed(burnRequestId);
 ```
 
-Consequence: a from-scratch inbox whose nonces overlap the pToken's history simply cannot be used for that pToken (deposits revert until the nonce passes the used range), which forces a correct migration instead of silent corruption. The inbox itself should also mix its own address into request ids.
+Consequence (documented trade-off): a from-scratch inbox whose nonces overlap the pToken's history cannot be used for that pToken — every colliding send reverts until the new inbox's per-target nonce climbs past the highest id the pToken has seen — which is a temporary, loud DoS instead of silent corruption. The inbox itself should also mix its own address into request ids. The portal-side guards are unreachable through mint/burn because the pToken reverts first; they are belt-and-braces.
 
-**Fix validation** — `fixes.ts` › X14: after rotation, the first fresh nonce works; the colliding deposit reverts `RequestIdAlreadyUsed` before any portal state is written; Alice's escrow and `Success` status are intact; her stranded withdrawal stays `Pending` and cannot be released.
+**Independent fix review.** SHIP. The reviewer called `_setRequestStatus` the right choke point (every send funnels through it, fail-closed, no extra SLOAD) and asked for the burn sub-claim to be proven and the DoS trade-off to be documented; both done.
+
+**Fix validation** — `fixes.ts` › X14: after rotation, the first fresh nonce works; the colliding deposit reverts `RequestIdAlreadyUsed` before any portal state is written; Alice's escrow and `Success` status are intact; her stranded withdrawal stays `Pending` and cannot be released. X14b: a colliding burn id is refused and `burnInFlightTotal` is not inflated.
 
 ---
+
+## Independent fix review — summary
+
+| # | Real? | Severity | Fix verdict (first version) | Change applied |
+|---|---|---|---|---|
+| 1 | REAL | Medium | SHIP-WITH-CHANGES | owner re-target restricted to self (Y1) |
+| 2 | REAL (blacklist) / DESIGN (pause) | Low | SHIP-WITH-CHANGES | payer checked at release; re-target refuses a listed payer |
+| 3 | REAL | Low | SHIP | NatSpec + "unless terminal" pause condition |
+| 4 | REAL | Medium | SHIP-WITH-CHANGES | try/catch probes (Y2), idempotent retire (Y4), `setPTokenMinter` guard |
+| 5 | DESIGN-CHOICE | Low | SHIP | — |
+| 6 | DUPLICATE of #3 | Informational | — | — |
+| 7 | REAL | Low | SHIP | — (deploy portal + factory together) |
+| 8 | REAL | Low | SHIP | — |
+| 9 | REAL | Low | SHIP | — |
+| 10 | REAL | Low | SHIP | — |
+| 11 | DESIGN-CHOICE | Informational | **REJECT** | fix withdrawn (Y3) |
+| 12 | REAL (admin misconfiguration) | Informational | SHIP | — |
+| 13 | REAL | Low | SHIP-WITH-CHANGES | `wrap` deprecated + admin cap |
+| 14 | REAL | Medium | SHIP | burn sub-claim proven (F14b / X14b); DoS trade-off documented |
+
+The reviewer agreed with every real / false-positive verdict of critique #1. Its four adversarial tests (Y1–Y4) against the first patched version all passed, i.e. all four defects were real; each is now covered by a regression test in `fixes.ts` and the corresponding change is marked `review change` in the patched sources. A remaining deployment note: `outstandingWithdrawalTotal` and `maxAutoWrapPortalFee` were inserted mid-contract in the patched copy; for an upgrade of live clones, append new storage at the end.
 
 ## Corrections carried from rev 1 / rev 2
 
@@ -546,12 +611,13 @@ _Vulnerability trails with concrete code smells where the full exploit path coul
 
 | Path | Role |
 |---|---|
-| `test/portal-poc/findings-A.ts`, `findings-B.ts` | exploit PoCs on the unmodified contracts (15 tests) |
-| `test/portal-poc/fixes.ts` | fix validations on the patched contracts (13 tests) |
+| `test/portal-poc/findings-A.ts`, `findings-B.ts` | exploit PoCs on the unmodified contracts (16 tests) |
+| `test/portal-poc/fixes.ts` | fix validations on the patched contracts (15 tests, incl. Y1–Y4 regressions) |
 | `test/portal-poc/helpers.ts` | fixture (real factory → real clones), EIP-712 permits, callback delivery |
 | `test/portal-poc/contracts/MockInboxForPortal.sol` | inbox stand-in with the real request-id / nonce scheme |
 | `test/portal-poc/contracts/PortalHarnesses.sol` | constructor-passthrough harnesses of the real contracts |
-| `test/portal-poc/contracts/patched/*Fixed.sol` | patched copies; every change marked `// FIX #n` |
+| `test/portal-poc/contracts/patched/*Fixed.sol` | patched copies; every change marked `// FIX #n` / `review change` |
+| `audit/privacy-portal-critique-rev2.md`, `audit/privacy-portal-fix-review-rev3.md` | the two independent critiques, verbatim |
 | `audit/diagrams/` | F1 call flow, refund state matrix, system architecture (independently verified) |
 
 ---
