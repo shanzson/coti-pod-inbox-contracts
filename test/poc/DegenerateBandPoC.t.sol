@@ -106,4 +106,19 @@ contract DegenerateBandPoC is Test {
         console2.log("fixed @ ratio 1e6: quoted k =", quoted / GP, ok ? "OK" : _decode(err));
         assertTrue(ok);
     }
+
+    /// The project's OWN shipped testnet prices (deploy-utils.ts:132-134), paired with the shipped
+    /// COTI-side template (deploy-utils.ts:392-403, installed as `remote` at :450).
+    function test_shipped_prices_from_deploy_utils_unreachable() public {
+        _prices(2103_410000000000000000, 12725220000000000); // ETH $2103.41 / COTI $0.01272522
+        (uint256 quoted,) = source.calculateTwoWayFeeRequiredInLocalToken(0, 0, 0, 0, GP);
+        (bool ok, bytes memory err) = _trySend(quoted);
+        console2.log("quoter k =", quoted / GP, ok ? "OK" : _decode(err));
+        assertFalse(ok);
+        for (uint256 k = 150; k <= 153; ++k) {
+            (bool okk, bytes memory e) = _trySend(k * GP);
+            console2.log("k =", k, okk ? "OK" : _decode(e));
+            assertFalse(okk);
+        }
+    }
 }
