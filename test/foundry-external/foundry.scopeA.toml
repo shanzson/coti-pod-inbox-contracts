@@ -1,0 +1,24 @@
+[profile.default]
+src = "contracts"
+test = "test/foundry"
+out = "out"
+libs = []
+solc = "<SCRATCH>/solc-0.8.28-static"
+evm_version = "shanghai"
+via_ir = true
+optimizer = true
+optimizer_runs = 1
+bytecode_hash = "none"
+allow_paths = ["/home/user", "<SCRATCH>"]
+fs_permissions = [{ access = "read", path = "./" }]
+remappings = [
+  "forge-std/=<SCRATCH>/forge-std/src/",
+  "@openzeppelin/=/home/user/coti-pod-inbox-contracts/node_modules/@openzeppelin/",
+  "@coti-io/coti-contracts/=/home/user/coti-contracts/",
+]
+[fuzz]
+runs = 256
+[invariant]
+runs = 32
+depth = 64
+fail_on_revert = false

@@ -1,0 +1,74 @@
+1 | estimateExecutionGasForMiner is unauthenticated, and the estimate's revert leaks confidential balances | High  | Unresolved
+2 | A withdrawal whose pTokens were taken on COTI can be cancelled on the source chain as though it never happened | High  | Resolved
+3 | Invalidating a pending request creates a permanent, silent divergence between the two chains | High  | Unresolved
+4 | Centralization and trust model | High  | Acknowledged
+5 | A collateral release that reverts is recorded as a successful withdrawal, with the user's pTokens already surr | Medium  | Unresolved
+6 | The rescue path routes user funds through a mutable address and rewrites its own accounting to match | Medium  | Status:Unresolved
+7 | The callback leg is quoted from the acknowledgement's size and validated against the request's, so a correctly | Medium  | Unresolved
+8 | The portal's fee oracle fails open where the Inbox's fails closed, and a stale feed silently waives the percen | Medium  | Unresolved
+9 | Pausing the portal does not stop collateral leaving it, and the emergency rescue can be raced and defeated by  | Medium  | Unresolved
+10 | The stale-request kill matures before the protocol's own expiry and permanently forecloses the user's refund | Medium  | Unresolved
+11 | The blacklist does not apply to the pToken, so a listed address can move value on the confidential leg | Medium  | Unresolved
+12 | Codeless target contract is treated as a successful execution | Medium  | Unresolved
+13 | A fee quote is unreliable whenever the gas price moves between quoting and inclusion | Medium  | Unresolved
+14 | The cross-chain conversion price is a manual constant with no age bound, and the two chains cannot stay consis | Medium | Unresolved 
+15 | The portal fee is quoted and then re-derived at execution, with no tolerance between the two | Medium  | Unresolved
+16 | Remounting a portal rotates a permission the old portal's refund path still needs, and quiescence cannot be ch | Medium  | Unresolved 
+17 | The shipped fee templates use the gas-price skew the documentation reserves for local testing, and the safegua | Low  | Unresolved
+18 | Adopting an existing pToken does not check it corresponds to the collateral it is paired with | Low | Unresolved
+19 | A portal accepts deposits before its pToken is registered on COTI; nonce ordering prevents the loss, leaving a | Low | Unresolved
+20 | Two-way request fields are validated when sent but not when received | Low | Unresolved
+21 | The two delegate-call modules cannot be replaced without redeploying the entire Inbox | Low | Unresolved
+22 | The dynamic fee's floor and cap are in wei while the fee is in USD, so the bounds drift with the native price | Low | Unresolved
+23 | The remount safety sequence is enforced on the path, not the capability: raw minter and ownership rotation byp | Low | Unresolved
+24 | The confidential ledger's ownership can be renounced, permanently freezing factory allow-listing and inbox rot | Low | Unresolved
+25 | A batch burn whose acknowledgement is lost can never be resolved, permanently reserving pTokens that no longer | Low | Unresolved
+26 | A configuration change can strand paid in-flight messages, and one such message fails an entire batch | Low | Unresolved
+27 | The build is not reproducible, and the dependency has already diverged from its published form | Low | Unresolved
+28 | The audited compiler configuration cannot produce a COTI-deployable artifact | Low | Unresolved
+29 | The gas-price skew ratio has no upper bound | Low | Unresolved
+30 | Authorisation for the fee administration surface lives in an override rather than the base, and one contract i | Low | Unresolved
+31 | The initialisation path does not enforce its own preconditions; the deployment script does | Low | Unresolved
+32 | A confidential input cannot be produced by the user; the amount must be disclosed to whoever signs it | Low | Unresolved
+33 | The portal fee oracle records when each price was written, and no consumer reads it | Informational | Unresolved
+34 | The blacklist deliberately does not reach a withdrawal already in flight, and the contracts do not say so | Informational | Unresolved
+35 | Only amounts are confidential; the transaction graph is public and indexed | Informational | Unresolved
+36 | Retry success is reported by a different event | Informational | Unresolved
+37 | inboxErrorType() must never be called from a success callback | Informational | Unresolved
+38 | Only three of the four terminal outcomes notify the source chain, and the fourth is the common one | Informational | Unresolved
+39 | A documented pre-funding flow does not exist, and the balance it would have spent cannot be recovered | Informational | Unresolved
+40 | Four transfer selectors resolve to two implementations, and one has no caller | Informational | Unresolved
+41 | The burn path writes its nonce after an external call | Informational | Unresolved
+42 | Every burn and mint computes an encrypted zero that is never read | Informational | Unresolved
+43 | Two request fields documented as different are assigned the same value everywhere | Informational | Unresolved
+44 | The mined batch is copied into memory before any item is validated | Informational | Unresolved
+45 | Event fields narrow array lengths without checking, and the bound that prevents overflow is declared elsewhere | Informational | Unresolved
+46 | Two naming conventions with different frames of reference are used together | Informational | Unresolved
+47 | Code that cannot run, and two pieces that run but do not do what they appear to | Informational | Unresolved
+48 | A superseded encode function remains beside its replacement, and it is the unsafe one | Informational | Unresolved
+49 | A storage pointer is taken before its slot is written and read after, across a function boundary | Informational | Unresolved
+50 | A reply leg carries an error selector belonging to a different contract's ABI | Informational | Unresolved
+51 | A gas budget is passed and named as a fee | Informational | Unresolved
+52 | Return data is bounded for the untrusted call target and unbounded for every trusted one | Informational | Unresolved
+53 | The never-reverts contract on the feed library describes less than its wording implies | Informational | Unresolved
+54 | A deposit escrow status is declared but unreachable | Informational | Unresolved
+55 | Native coin sent to a portal is unattributable and cannot be returned to the sender | Informational | Unresolved
+56 | A fee parameter named for basis points is denominated in parts per million | Informational | Unresolved
+57 | Two cases where a cross-chain round trip is paid for and cannot succeed | Informational | Unresolved
+58 | The routing setter does not apply a code check the factory applies elsewhere | Informational | Unresolved
+59 | The capped-returndata fix discards the one value that would show a reason was truncated | Informational | Unresolved
+60 | One execution-context slot is protected by two different mechanisms, and by neither where it is read | Informational | Unresolved
+61 | Four structural invariants are enforced by convention rather than by the compiler | Informational | Unresolved
+62 | Clearing a manual price takes the whole fee lane offline in a single transaction | Informational | Unresolved
+63 | The reject ingest path skips the caps the normal ingest path applies, and meets one of them later | Informational | Unresolved
+64 | The non-reverting decoder's bounds check is an unchecked addition, and it wraps | Informational | Unresolved
+65 | A target can be forwarded less gas than its sender paid for, and the settlement event reports the figure that  | Informational | Unresolved
+66 | Collateral is measured on the way in and taken on trust on the way out | Informational | Unresolved
+67 | One of the three payload caps is bounded by nothing | Informational | Unresolved
+68 | One fee has two quote surfaces, and the one that looks general-purpose cannot see per-portal overrides | Informational | Unresolved
+69 | Lanes are per-chain in the request bookkeeping and global in the fee configuration | Informational | Unresolved
+70 | A remount carries the collateral and the token, and silently drops the portal's own configuration | Informational | Unresolved
+71 | A native deposit is refunded in wrapped form, though a native withdrawal is unwrapped | Informational | Unresolved
+72 | pTokens transferred to a portal outside the withdrawal flow are stranded on COTI, unburnable | Informational | Unresolved
+73 | transferAndCall lets any sender make the pToken issue an arbitrary call as itself, so onlyPToken is not a secu | Informational | Unresolved
+74 | transferPTokenOwnership leaves the factory's pToken mappings pointing at the old portal | Informational | Unresolved

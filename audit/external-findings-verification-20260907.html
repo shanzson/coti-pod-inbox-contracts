@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Verification of the external audit findings (74 items) — PoD Inbox + Privacy Portal</title><style>
+@page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10.2pt; line-height: 1.48; color: #1b1f24; margin: 0; }
+.banner { border-bottom: 3px solid #c0392b; padding-bottom: 14px; margin-bottom: 22px; }
+.banner .eyebrow { font-size: 8.5pt; letter-spacing: .14em; text-transform: uppercase; color: #c0392b; font-weight: 700; }
+.banner h1 { font-size: 21pt; line-height: 1.15; margin: 6px 0 8px; color: #12161b; font-weight: 800; letter-spacing: -.01em; }
+.banner .meta { font-size: 9pt; color: #5b6570; }
+h1 { font-size: 16pt; color: #12161b; margin: 26px 0 10px; padding-top: 6px; border-top: 2px solid #e6e8eb; font-weight: 800; }
+h2 { font-size: 13pt; color: #1b1f24; margin: 22px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #e6e8eb; font-weight: 700; break-after: avoid; }
+h3 { font-size: 11.2pt; color: #24303b; margin: 18px 0 6px; font-weight: 700; break-after: avoid; }
+h4 { font-size: 10.2pt; color: #24303b; margin: 12px 0 4px; font-weight: 700; break-after: avoid; }
+p { margin: 7px 0; } ul, ol { margin: 7px 0; padding-left: 20px; } li { margin: 3px 0; }
+a { color: #1f6feb; text-decoration: none; } strong { color: #12161b; }
+code { font-family: "SF Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace; font-size: 8.6pt; background: #f2f3f5; color: #b02a37; padding: 1px 4px; border-radius: 3px; border: 1px solid #e7e9ec; word-break: break-word; }
+pre { background: #f7f8fa; border: 1px solid #e7e9ec; border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-size: 8.4pt; line-height: 1.45; white-space: pre-wrap; word-break: break-word; break-inside: avoid; }
+pre code { background: none; color: #24303b; border: none; padding: 0; font-size: 8.4pt; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 8.8pt; break-inside: auto; }
+th, td { border: 1px solid #dcdfe3; padding: 5px 8px; text-align: left; vertical-align: top; }
+th { background: #eef1f4; font-weight: 700; color: #12161b; } tr { break-inside: avoid; }
+tbody tr:nth-child(even) { background: #f8f9fb; }
+blockquote { margin: 12px 0; padding: 8px 14px; background: #f4f7fb; border-left: 4px solid #1f6feb; color: #33404c; border-radius: 0 4px 4px 0; }
+blockquote p { margin: 4px 0; } hr { border: none; border-top: 1px solid #e6e8eb; margin: 20px 0; }
+.sev { display: inline-block; padding: 1px 7px; border-radius: 10px; color: #fff !important; font-size: 8.4pt; font-weight: 700; }
+.sev-crit { background: #7c1d1d; } .sev-high { background: #c0392b; } .sev-med { background: #d68910; } .sev-low { background: #2874a6; } .sev-info { background: #566573; }
+.ver { color: #fff; border: none; font-weight: 700; padding: 1px 6px; border-radius: 3px; }
+.v-ok { background: #1e8449; } .v-down { background: #b9770e; } .v-design { background: #566573; } .v-dup { background: #7d3c98; } .v-no { background: #7c1d1d; }
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #ffffcc }
+.codehilite { background: #f8f8f8; }
+.codehilite .c { color: #3D7B7B; font-style: italic } /* Comment */
+.codehilite .err { border: 1px solid #F00 } /* Error */
+.codehilite .k { color: #008000; font-weight: bold } /* Keyword */
+.codehilite .o { color: #666 } /* Operator */
+.codehilite .ch { color: #3D7B7B; font-style: italic } /* Comment.Hashbang */
+.codehilite .cm { color: #3D7B7B; font-style: italic } /* Comment.Multiline */
+.codehilite .cp { color: #9C6500 } /* Comment.Preproc */
+.codehilite .cpf { color: #3D7B7B; font-style: italic } /* Comment.PreprocFile */
+.codehilite .c1 { color: #3D7B7B; font-style: italic } /* Comment.Single */
+.codehilite .cs { color: #3D7B7B; font-style: italic } /* Comment.Special */
+.codehilite .gd { color: #A00000 } /* Generic.Deleted */
+.codehilite .ge { font-style: italic } /* Generic.Emph */
+.codehilite .ges { font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #E40000 } /* Generic.Error */
+.codehilite .gh { color: #000080; font-weight: bold } /* Generic.Heading */
+.codehilite .gi { color: #008400 } /* Generic.Inserted */
+.codehilite .go { color: #717171 } /* Generic.Output */
+.codehilite .gp { color: #000080; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #800080; font-weight: bold } /* Generic.Subheading */
+.codehilite .gt { color: #04D } /* Generic.Traceback */
+.codehilite .kc { color: #008000; font-weight: bold } /* Keyword.Constant */
+.codehilite .kd { color: #008000; font-weight: bold } /* Keyword.Declaration */
+.codehilite .kn { color: #008000; font-weight: bold } /* Keyword.Namespace */
+.codehilite .kp { color: #008000 } /* Keyword.Pseudo */
+.codehilite .kr { color: #008000; font-weight: bold } /* Keyword.Reserved */
+.codehilite .kt { color: #B00040 } /* Keyword.Type */
+.codehilite .m { color: #666 } /* Literal.Number */
+.codehilite .s { color: #BA2121 } /* Literal.String */
+.codehilite .na { color: #687822 } /* Name.Attribute */
+.codehilite .nb { color: #008000 } /* Name.Builtin */
+.codehilite .nc { color: #00F; font-weight: bold } /* Name.Class */
+.codehilite .no { color: #800 } /* Name.Constant */
+.codehilite .nd { color: #A2F } /* Name.Decorator */
+.codehilite .ni { color: #717171; font-weight: bold } /* Name.Entity */
+.codehilite .ne { color: #CB3F38; font-weight: bold } /* Name.Exception */
+.codehilite .nf { color: #00F } /* Name.Function */
+.codehilite .nl { color: #767600 } /* Name.Label */
+.codehilite .nn { color: #00F; font-weight: bold } /* Name.Namespace */
+.codehilite .nt { color: #008000; font-weight: bold } /* Name.Tag */
+.codehilite .nv { color: #19177C } /* Name.Variable */
+.codehilite .ow { color: #A2F; font-weight: bold } /* Operator.Word */
+.codehilite .w { color: #BBB } /* Text.Whitespace */
+.codehilite .mb { color: #666 } /* Literal.Number.Bin */
+.codehilite .mf { color: #666 } /* Literal.Number.Float */
+.codehilite .mh { color: #666 } /* Literal.Number.Hex */
+.codehilite .mi { color: #666 } /* Literal.Number.Integer */
+.codehilite .mo { color: #666 } /* Literal.Number.Oct */
+.codehilite .sa { color: #BA2121 } /* Literal.String.Affix */
+.codehilite .sb { color: #BA2121 } /* Literal.String.Backtick */
+.codehilite .sc { color: #BA2121 } /* Literal.String.Char */
+.codehilite .dl { color: #BA2121 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #BA2121; font-style: italic } /* Literal.String.Doc */
+.codehilite .s2 { color: #BA2121 } /* Literal.String.Double */
+.codehilite .se { color: #AA5D1F; font-weight: bold } /* Literal.String.Escape */
+.codehilite .sh { color: #BA2121 } /* Literal.String.Heredoc */
+.codehilite .si { color: #A45A77; font-weight: bold } /* Literal.String.Interpol */
+.codehilite .sx { color: #008000 } /* Literal.String.Other */
+.codehilite .sr { color: #A45A77 } /* Literal.String.Regex */
+.codehilite .s1 { color: #BA2121 } /* Literal.String.Single */
+.codehilite .ss { color: #19177C } /* Literal.String.Symbol */
+.codehilite .bp { color: #008000 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #00F } /* Name.Function.Magic */
+.codehilite .vc { color: #19177C } /* Name.Variable.Class */
+.codehilite .vg { color: #19177C } /* Name.Variable.Global */
+.codehilite .vi { color: #19177C } /* Name.Variable.Instance */
+.codehilite .vm { color: #19177C } /* Name.Variable.Magic */
+.codehilite .il { color: #666 } /* Literal.Number.Integer.Long */
+.codehilite { background: #f7f8fa; }
+</style></head>
+<body><div class="banner"><div class="eyebrow">Smart-Contract Security Review — PoC-validated, independently critiqued</div>
+<h1>Verification of the external audit findings (74 items) — PoD Inbox + Privacy Portal</h1><div class="meta">Verification of 74 external audit findings · coti-pod-inbox-contracts @ 89121ad · coti-contracts @ 8a0c492 · gist 7aa7524c · 2026-09-07</div></div>
+<p><strong>Date:</strong> 2026-09-07 · <strong>Verifier:</strong> Claude (this session), with three independent sub-agents for the Low/Informational batches
+<strong>Input:</strong> the 74-item findings list you pasted (numbered here 1–74 in the order pasted; titles in <code>external-findings-verification/findings_index.txt</code>) and its PoC gist <code>kuldeep23907/a7f659352f240ca9e67f49ed3c8c3220</code> at commit <code>7aa7524c</code> (2026-09-06).
+<strong>Code verified against:</strong> <code>coti-pod-inbox-contracts</code> HEAD (= audited <code>89121ad</code> plus one comment line) and <code>coti-contracts</code> (byte-identical to audited <code>8a0c492</code>).</p>
+<hr />
+<h2 id="1-bottom-line">1. Bottom line</h2>
+<p><strong>PoCs.</strong> Every gist test was compiled and executed against the real contracts with Foundry 1.5.1 / solc 0.8.28.</p>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>Suites</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A — <code>coti-pod-inbox-contracts</code> (Inbox, FeeManager, oracles)</td>
+<td>20</td>
+<td><strong>108 / 108 pass</strong> (incl. the B11 test, whose harness was missing from the gist and was written here)</td>
+</tr>
+<tr>
+<td>B — <code>coti-contracts</code> (portal, pToken, mother)</td>
+<td>13 gist suites</td>
+<td><strong>77 pass, 2 fail by design</strong> (the two failing invariants <em>are</em> findings #6's evidence), 0 unexpected failures</td>
+</tr>
+</tbody>
+</table>
+<p>Not runnable here: the A4 live COTI-testnet probe (not in the gist; needs the real MPC precompile). Everything else reproduced exactly as the auditor describes.</p>
+<p><strong>False positives.</strong> None of the 74 is a pure false positive: every item points at real code behaviour. Twelve contain a materially wrong sub-claim or an overstated impact (listed in §7), and one core claim (#32, precompile binds signatures to <code>tx.origin</code>) cannot be verified from either repository.</p>
+<p><strong>Severities.</strong> Of the 16 High/Medium items, 5 ratings stand and 11 are over-rated:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Claimed</th>
+<th>Verified</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>High</td>
+<td><strong class="sev sev-high">High</strong></td>
+<td>Unauthenticated, permissionless exact-balance read; confirmed in code and by PoC</td>
+</tr>
+<tr>
+<td>2</td>
+<td>High</td>
+<td><strong class="sev sev-med">Medium</strong></td>
+<td>Needs a lost COTI→source ack (trusted-miner liveness failure) <em>and</em> an admin kill; loss is recoverable only by admin rescue</td>
+</tr>
+<tr>
+<td>3</td>
+<td>High</td>
+<td><strong class="sev sev-med">Medium</strong></td>
+<td>Needs the admin to refund against explicit NatSpec instructions; the COTI Inbox's <code>incomingRequests[id].executed</code> is public, so the operator <em>can</em> check — the finding's "cannot be checked" is wrong</td>
+</tr>
+<tr>
+<td>4</td>
+<td>High (ack.)</td>
+<td><strong>High (ack.)</strong></td>
+<td>Trust model; matches our earlier POD-01</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Medium</td>
+<td><strong class="sev sev-med">Medium</strong></td>
+<td>= our #1 (reverting release recorded <code>Success</code>)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Medium</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>Admin-only, <code>whenPaused</code>, catastrophe path; = our #10 plus the (intended) fee clamp</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Medium</td>
+<td><strong class="sev sev-med">Medium</strong></td>
+<td>Confirmed <em>and</em> made concrete: with the shipped Sepolia template, every encrypted <code>transfer</code>/<code>transferFrom</code> funded by <code>PodERC20.estimateFee()</code> reverts <code>CallbackFeeTooLow</code> (§6)</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Medium</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>Fail-open is documented in <code>IPodPriceOracle</code> and the fee lib NatSpec; protocol revenue only; = our #11</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Medium</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>Pause = new-entry breaker by design (repo test proves it); a raced "rescue" pays entitled withdrawers</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Medium</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>Admin action; collateral recoverable via <code>adminRefundPendingDeposit</code>; timer ordering is a valid config note</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Medium</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>Blacklist is documented as a portal entry-point control; one-hop bypass is a policy/scope gap, not a code defect</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Medium</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>User/admin address error; fee lost and request unterminalizable; no attacker, no fund loss beyond fees</td>
+</tr>
+<tr>
+<td>13</td>
+<td>Medium</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>UX/availability; user re-submits; no loss</td>
+</tr>
+<tr>
+<td>14</td>
+<td>Medium</td>
+<td><strong class="sev sev-med">Medium</strong></td>
+<td>Matches our own oracle analysis (F-1/F-2/C-1); stale manual constant misprices every message</td>
+</tr>
+<tr>
+<td>15</td>
+<td>Medium</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>Zero-tolerance quote is UX; overpayment bounded by <code>maxFee</code>; <code>wrap</code> cap = our #13</td>
+</tr>
+<tr>
+<td>16</td>
+<td>Medium</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>= our #3; admin-only, bounded (48 h), recoverable, and the finding itself shows the recovery</td>
+</tr>
+</tbody>
+</table>
+<p>Low batch (17–32): all real; #21 and #30 are Informational (documented design / structurally unreachable). Informational batch (33–74): all real; <strong>#39, #69, #70, #72 deserve Low</strong> (#34 Low unless the in-flight-blacklist policy is written down).</p>
+<p><strong>New finding from this verification (not in the list).</strong> The fee templates shipped in <code>scripts/deploy-utils.ts</code> set the COTI-side <code>constantFee</code> equal to <code>maxExecutionGas</code> (both 25,000,000). On a source chain the target leg is then admissible at exactly one gas figure, and with any realistic ETH/COTI price ratio (including the script's own testnet spot prices) no payment lands on it: every source→COTI two-way and one-way send reverts <code>TargetFeeTooLow</code> or <code>FeeGasTooHigh</code>. Even at 1:1 test prices, <code>PodERC20.estimateFee()</code> overshoots the cap by 300,000 units and reverts <code>FeeGasTooHigh</code>. Proven by a cross-repo Foundry test on the real Inbox + FeeManager + pToken (§6). Severity <strong>High (availability, configuration)</strong> — conditional on the live Inbox carrying these template values, which is readable on-chain via <code>remoteMinFeeConfig()</code>.</p>
+<hr />
+<h2 id="2-how-the-pocs-were-run">2. How the PoCs were run</h2>
+<ul>
+<li>Two Foundry workspaces were built from copies of each repo's <code>contracts/</code> tree (legacy <code>disperse/</code> dropped from B: pinned <code>=0.8.20</code>), gist tests placed at <code>test/foundry/</code>, gist mocks at <code>test/foundry/mocks/</code>, <code>forge-std</code> 1.16.2, OpenZeppelin 5.4.0 from each repo's <code>node_modules</code>, native solc 0.8.28. Scope A compiled with <code>shanghai</code> (the inbox repo's config), Scope B with <code>paris</code> (coti-contracts' config); <code>via_ir</code>, optimizer runs 1, both as the repos ship.</li>
+<li><code>P14_PortalRescueSolvency.invariant.t.sol</code> imports <code>./PortalAccounting.invariant.t.sol</code>, which does not exist in either repo (the gist README says it is published as <code>P14F3_…</code>); that file was copied under the expected name. Neither repo contains any Foundry configuration or <code>test/foundry/</code> tree at the audited commits, contrary to the gist README's "the repository's existing Foundry configuration".</li>
+<li><code>B11_TryDecodeWrap.t.sol</code> imports <code>./harness/B11Harness.sol</code>, absent from the gist. A 30-line harness (<code>test/foundry-external/harness/B11Harness.sol</code>) exposing <code>InboxBase._safeEncodeMethodCall</code> behind a raw-returning echo module was written; the 4 B11 tests then pass and confirm the wrap.</li>
+<li>The 7 failures in Scope B's log are <code>contracts/mocks/utils/mpc/OnBoard*TestsContract.sol</code> — the repo's own MPC mock test contracts that forge picks up and that need the real precompile. They are not gist tests.</li>
+<li>What is real vs modelled in the gist (their README is accurate on this): cross-chain <em>timing</em> claims (48 h expiry, retry) run against <code>MockCotiBridgeInbox</code>, a transcription of the Inbox; the mother's commit ordering (finding 2's debit-before-ack) runs the real <code>PodErc20CotiMother</code> under an MPC stub; P5's Inbox floor is a model of the dominant term only. <code>MockMpcPrecompile</code> tests logic, not cryptography, so nothing here speaks to the MPC layer's confidentiality itself.</li>
+<li>Invariant runs were shortened (32 runs × 64 depth) to fit the session; both designed-to-fail invariants still shrink to the sequences the README states (<code>deposit → rescueNative</code>; <code>deposit → withdraw → release → rescueERC20</code>).</li>
+</ul>
+<p>Full per-test logs: <code>external-findings-verification/forge-scopeA-inbox-results.log</code>, <code>forge-scopeB-coti-contracts-results.log</code>, <code>forge-verifier-shipped-config-results.log</code>.</p>
+<hr />
+<h2 id="3-high-and-medium-findings-116">3. High and Medium findings (1–16)</h2>
+<p>Line numbers are HEAD line numbers; every cited line was read.</p>
+<h3 id="1-estimateexecutiongasforminer-is-an-unauthenticated-confidential-balance-oracle-claimed-high-high-confirmed">#1 — <code>estimateExecutionGasForMiner</code> is an unauthenticated confidential-balance oracle · claimed High → <strong>High, CONFIRMED</strong></h3>
+<ul>
+<li><code>InboxMiner.sol:275-281</code>: <code>estimateExecutionGasForMiner</code> is <code>external override</code> with <strong>no <code>onlyMiner</code></strong>, unlike <code>batchProcessRequests</code> (<code>:34-37</code>). Body <code>InboxEstimateGas.sol:74-141</code>: it copies the caller-supplied <code>mined.sourceContract</code> into <code>originalSender</code> (<code>:123-124</code>), and <code>_runIncomingExecution</code> (<code>InboxMiner.sol:329-333</code>) sets <code>_currentContext.remoteContract</code> from it, so <code>inboxMsgSender()</code> (<code>InboxBase.sol:356-360</code>) returns whatever the caller named. Nothing checks it against a trusted-remote set (the mother's <code>registered</code> mapping is <code>public</code>, <code>PodErc20CotiMother.sol:36</code>).</li>
+<li><code>transferPublic</code> (<code>PodErc20CotiMother.sol:237</code>) → <code>_moveWithOptionalAllowance</code> with <code>amountIsPublic = true</code> and no allowance check → <code>if (!MpcCore.decrypt(MpcCore.ge(senderBalance, amount)))</code> raise, else respond (<code>:425-433</code>, <code>:482</code>). <code>respond</code>/<code>raise</code> are tagged and accumulated into <code>responseDataSize</code> / <code>errorDataSize</code> (<code>InboxEstimateGas.sol:46-64</code>, <code>InboxBase.sol:272</code>, <code>:505</code>) and returned in the terminal revert (<code>InboxEstimateGas.sol:140</code>).</li>
+<li>Gist PoC <code>EstimateGasBalanceOracle.t.sol</code>: 5/5 pass — non-miner reaches the handler, the size bit flips at the balance, binary search recovers the seeded 1,000,000 exactly, no state/event footprint, <code>staticcall</code> fails but <code>call</code> works. The live-testnet run (20 probes) is the auditor's claim; not reproducible here but every code step it depends on is confirmed.</li>
+<li>Severity: <strong>High agreed.</strong> Confidentiality of balances is the product; the read needs no key, no fee beyond gas, and is repeatable. Fix (add <code>onlyMiner</code>; make the two branches size-symmetric as defence in depth) is correct. Note the mother's own comment (<code>:416</code>) shows the authors considered probing only on the allowance path.</li>
+</ul>
+<h3 id="2-committed-coti-transfer-can-be-cancelled-on-the-source-chain-via-killstalerequest-cancelfailedwithdrawal-claimed-high-medium-confirmed">#2 — Committed COTI transfer can be cancelled on the source chain via <code>killStaleRequest</code> + <code>cancelFailedWithdrawal</code> · claimed High → <strong>Medium, CONFIRMED</strong></h3>
+<ul>
+<li>Mother writes both balances before acking: <code>_writeGarbledBalance(id, from, senderAfter)</code> (<code>:453</code>), recipient (<code>:479</code>), then <code>inbox.respond</code> (<code>:482</code>). <code>SystemFailed</code> is only written by <code>_handleSystemError</code> (<code>PodERC20.sol:686-692</code>), reached only from <code>SYSTEM_SENDER</code> legs, which the Inbox mints only when the forward leg did not execute (<code>InboxBase.sol:565-617</code>, callers <code>InboxMiner.sol:209</code>, <code>:310</code>, <code>:346</code>). A lost ack therefore leaves the request <code>Pending</code>; <code>killStaleRequest</code> (<code>PodERC20.sol:590-605</code>) is clock-only and writes <code>Failed</code>; <code>cancelFailedWithdrawal</code> (<code>PrivacyPortal.sol:647-664</code>) accepts <code>Failed</code> or <code>SystemFailed</code> with no custody check; <code>_releaseWithdrawal</code> requires <code>Success</code> (<code>:861-864</code>), so the withdrawal is dead either way. All cited lines accurate. Gist <code>P7P9_DualTimerExit</code> (7/7) and <code>SystemFailedReachability</code> (5/5) pass; Q4 executes the wrongful cancel on the real portal.</li>
+<li>Why Medium, not High: the trigger is a return leg that is never delivered (or fails its first mine and is not retried within 48 h) — a liveness failure of the trusted miner, which the same report files as an acknowledged trust-model item — followed by an owner kill whose NatSpec (<code>IPodERC20.sol:298-305</code>) gives no COTI-side check. The user is harmed (pTokens debited on COTI, collateral locked) and only an admin <code>rescueERC20</code> while paused can return the collateral; the portal's COTI pTokens stay stranded (#72). Real, serious, but two failures of trusted parties away. Status "Resolved" in your list is not reflected in the audited code.</li>
+<li>Fix direction agreed: separate a far-side <code>Failed</code> (mother <code>raise</code>) from a locally written one, and do not let the kill act on a request whose forward leg may have executed.</li>
+</ul>
+<h3 id="3-invalidatependingrequest-creates-permanent-silent-divergence-unbacked-supply-claimed-high-medium-confirmed-one-detail-wrong">#3 — <code>invalidatePendingRequest</code> creates permanent silent divergence / unbacked supply · claimed High → <strong>Medium, CONFIRMED (one detail wrong)</strong></h3>
+<ul>
+<li><code>invalidatePendingRequest</code> (<code>PodERC20.sol:573-580</code>): minter-gated, no age gate, writes <code>Failed</code>; <code>_setRequestStatus</code> (<code>:628-643</code>) rejects any later terminal write (<code>RequestNotPending</code>), so a late COTI <code>Success</code> callback reverts forever. <code>adminRefundPendingDeposit</code> (<code>PrivacyPortal.sol:614-643</code>) is <code>onlyFactoryAdmin whenPaused</code> with no age gate and only a <code>Success</code> check (<code>:627</code>). Gist <code>P21_PodErc20StateMachine</code> 3/3 pass. A COTI-side mint that lands after the refund is spendable there (the user can withdraw it through the portal), so the unbacked-supply consequence is real.</li>
+<li>Wrong detail: "no event" — <code>_setRequestStatus</code> emits <code>RequestStatusUpdated(requestId, Failed)</code> (<code>:642</code>); what is missing is a dedicated event like <code>StaleRequestKilled</code>. Overstated: "the operator is asked to resolve the difference by reading a confidential ledger by hand" — the COTI Inbox exposes <code>incomingRequests[id].executed</code> and <code>errors[id]</code> publicly (<code>InboxBase.sol:25</code>, <code>:23</code>), which is exactly the fact the NatSpec (<code>PrivacyPortal.sol:605-611</code>) tells the admin to establish.</li>
+<li>Why Medium: requires a privileged action against explicit documentation, with a public on-chain signal available; consequence (double payout) is severe, so not Low. Recommendation (age gate, event, reconcile-on-late-success) is sound; our validated fix #3/#8 already touches this path.</li>
+</ul>
+<h3 id="4-centralization-trust-model-claimed-high-acknowledged-high-acknowledged-confirmed">#4 — Centralization / trust model · claimed High (acknowledged) → <strong>High (acknowledged), CONFIRMED</strong></h3>
+<ul>
+<li><code>MinerBase.sol</code>: flat <code>mapping(address =&gt; bool)</code>, single <code>onlyMiner</code>; <code>batchProcessRequests</code> copies <code>sourceContract</code>, <code>isTwoWay</code>, <code>sourceRequestId</code>, selectors and fees verbatim (<code>InboxMiner.sol:104-119</code>), marks the named original request executed (<code>:142-150</code>), reject lane stores miner-supplied code/reason (<code>:80-91</code>, <code>:167-215</code>), TTL clock starts at ingest (<code>:111</code>). Gist <code>P2_ForgedRelease</code> (1/1), <code>A3_RejectLaneCensorship</code> (2/2), <code>E3_MinerAuthoritySurface</code> (2/2) pass. Matches our earlier <code>POD_INBOX_AUDIT.md</code> POD-01 ("fully trusted miner", Critical by design). The one untested claim (rejecting a two-way message with <code>isTwoWay=false</code> sends nothing) follows directly from <code>:208</code>. No severity change.</li>
+</ul>
+<h3 id="5-reverting-collateral-release-recorded-as-success-claimed-medium-medium-confirmed-our-1">#5 — Reverting collateral release recorded as <code>Success</code> · claimed Medium → <strong>Medium, CONFIRMED (= our #1)</strong></h3>
+<ul>
+<li><code>transferCallback</code> writes <code>Success</code> (<code>PodERC20.sol:336</code>) before the swallowed hook call (<code>:366-372</code>). Gist <code>P22_…</code> 2/2 and <code>P24_…</code> 4/4 pass (blocklisted recipient and rebasing collateral triggers). Their observation that the withdrawal record rolls back to <code>TransferPending</code> and that a permissionless <code>triggerWithdrawalRelease</code> retry succeeds once the obstruction clears is correct and matches our fix (WETH fallback + <code>retargetStuckWithdrawal</code>). Severity agreed.</li>
+</ul>
+<h3 id="6-rescue-path-mutable-rescuerecipient-accumulatedportalfees-clamp-rescueerc20-has-no-reserve-claimed-medium-low-confirmed">#6 — Rescue path: mutable <code>rescueRecipient</code>, <code>accumulatedPortalFees</code> clamp, <code>rescueERC20</code> has no reserve · claimed Medium → <strong>Low, CONFIRMED</strong></h3>
+<ul>
+<li><code>feeRecipient</code> immutable, <code>rescueRecipient</code> settable (<code>PrivacyPortalFactory.sol:52-54</code>, <code>:423</code>); <code>rescueNative</code> clamps the fee counter (<code>PrivacyPortal.sol:748-766</code>); <code>rescueERC20</code> excludes only the pToken (<code>:769-782</code>). Both are <code>onlyFactoryAdmin nonReentrant whenPaused</code>. Gist invariants fail as designed (<code>P14: fees silently rewritten down</code>, <code>collateral leak via rescueERC20</code>).</li>
+<li>Why Low: this is the catastrophe path, admin-only, behind a visible pause; the clamp is the deliberate consistency rule you asked about earlier (fees can never exceed balance); the missing collateral reserve is our #10 (Low, fix <code>outstandingWithdrawalTotal</code> validated). The "trust placement" argument is a design observation, not a vulnerability.</li>
+</ul>
+<h3 id="7-callback-leg-quoted-from-the-ack-size-but-validated-against-the-request-size-claimed-medium-medium-confirmed-and-sharpened">#7 — Callback leg quoted from the ack size but validated against the request size · claimed Medium → <strong>Medium, CONFIRMED and sharpened</strong></h3>
+<ul>
+<li>Quote: <code>FeeManagerStubBase.sol:151-186</code> sizes the callback leg from <code>callBackMethodCallSize</code> and adds <code>callBackMethodExecutionGas</code> (<code>:181</code>). Validator: <code>FeeManager.sol:183</code> checks <code>callerGasLocalUnits &lt; expectedMinFee(dataSize, localMin)</code> with <code>dataSize = abi.encode(methodCall).length</code> of the <strong>request</strong> (<code>InboxBase.sol:197</code>). Gist <code>C17_…</code> 9/9 pass, coefficient 1,200 gas/byte measured on the real fee path.</li>
+<li>Made concrete here (<code>test/foundry-external/verifier/ShippedConfigQuote.t.sol</code>, <code>MsgSizeProbe.t.sol</code>): <code>PodERC20.estimateFee()</code> quotes with fixed 512/512-byte legs and 300k exec gas each (<code>PodERC20.sol:39-45</code>, <code>:844-850</code>). Real message sizes: public mint 448 B, public transfer/approve 544 B, <strong>encrypted <code>transfer</code> 768 B, encrypted <code>transferFrom</code> 864 B</strong>. With the shipped Sepolia template (800 gas/byte, ×1.5 buffer, 100k callback gas, 256-byte error), the quote covers requests up to 762 B — so a public transfer funded by the quote is accepted, while encrypted <code>transfer(to, itUint256, cb)</code>, the auto-fee overload <code>transfer(to, itUint256)</code>, and encrypted <code>transferFrom</code> all revert <code>CallbackFeeTooLow(1_371_600)</code>. The confidential path is the product; the official estimator cannot fund it. Severity agreed. Fix: quote and validate from the same size, or derive the callback minimum from <code>callbackExecutionGas</code> only.</li>
+</ul>
+<h3 id="8-portal-fee-oracle-fails-open-claimed-medium-low-design-choice-documented-with-valid-observability-notes-our-11">#8 — Portal fee oracle fails open · claimed Medium → <strong>Low, DESIGN CHOICE (documented) with valid observability notes (= our #11)</strong></h3>
+<ul>
+<li><code>PrivacyPortalFeeLib.sol:79-97</code>: <code>@dev Falls back to fixedFee … when either rate is zero</code>; <code>IPodPriceOracle.sol:9-10</code>: "Feed adapters never revert; return 0 when a feed is unset, stale, or failed. Zero rates make resolvePortalFee skip dynamic pricing". <code>PortalFeeOracle.setTokenPriceUSD</code> refuses zero (<code>:31-36</code>). Gist P5 Part 5 (6 tests) and <code>P6_OracleFailClosed_ScopeA</code> (3) pass and show exactly the documented behaviour plus the Inbox's <code>OraclePriceZero</code> contrast (<code>FeeManager.sol:245-257</code>).</li>
+<li>Valid additions worth keeping: <code>usedDynamicPricing</code> is dropped on the charge path (<code>PrivacyPortal.sol:917</code>), a percentage-only config charges zero during an outage, and <code>wrap</code> passes the floor straight through (<code>:492-500</code>). Revenue-only impact; our review already withdrew a strict-mode fix because it bricks the exit path during an oracle outage.</li>
+</ul>
+<h3 id="9-pausing-does-not-stop-the-release-leg-rescue-can-be-raced-claimed-medium-low-design-choice-real-observation">#9 — Pausing does not stop the release leg; rescue can be raced · claimed Medium → <strong>Low, DESIGN CHOICE + real observation</strong></h3>
+<ul>
+<li>Confirmed: pause gates only entry points (<code>_checkDepositsNotPaused</code>, <code>_checkWithdrawalsNotPaused</code>), <code>triggerWithdrawalRelease</code> (<code>:667</code>) and <code>_releaseWithdrawal</code> (<code>:853</code>) have none, <code>depositsPaused()</code>/<code>withdrawalsPaused()</code> both return <code>paused()</code> (<code>PrivacyPortalFactory.sol:443-450</code>). Gist <code>P24a/b</code> pass.</li>
+<li>Why Low: the repo's own tests establish the pause as a new-entry circuit breaker (our #2 pause-half verdict); a "raced" release pays a <code>Success</code> withdrawal to its rightful recipient. The scenario where those releases <em>should not</em> be paid (forged <code>Success</code>) requires the trusted miner. The recommendation to give the rescue path a precondition that actually implies quiescence is reasonable.</li>
+</ul>
+<h3 id="10-requestkillminage-1-day-matures-before-maxmessagelife-48-h-claimed-medium-low-confirmed">#10 — <code>requestKillMinAge</code> (1 day) matures before <code>maxMessageLife</code> (48 h) · claimed Medium → <strong>Low, CONFIRMED</strong></h3>
+<ul>
+<li><code>requestKillMinAge = 1 days</code> (<code>PodERC20.sol:556</code>), <code>DEFAULT_MAX_MESSAGE_LIFE = 172_800</code> (<code>FeeManager.sol:22</code>), monotonic status (<code>:628-637</code>), <code>refundFailedDeposit</code> needs <code>SystemFailed</code> (<code>PrivacyPortal.sol:592</code>), <code>adminRefundPendingDeposit</code> still works after a kill (<code>:626-634</code>: with status <code>Failed</code> the minter-only invalidate is skipped). Gist P7 A1–A5 pass (expiry step modelled). Effect: a permissionless recovery becomes an admin one; no loss. Config ordering recommendation is sound.</li>
+</ul>
+<h3 id="11-blacklist-not-applied-to-the-ptoken-claimed-medium-low-confirmed-as-a-documented-scope-gap">#11 — Blacklist not applied to the pToken · claimed Medium → <strong>Low, CONFIRMED as a documented scope gap</strong></h3>
+<ul>
+<li><code>IPrivacyPortalFactory.sol:23-26</code>: "Factory-level address blocklist read by portal clones before user entry points … blocked from deposits and withdrawals on factory portals". No blacklist reference anywhere under <code>contracts/pod/token/perc20/</code>. Gist P10 C1–C4 pass (entry points gated; direct <code>PodERC20.transfer</code> bypasses; no freeze/clawback). Whether the confidential asset itself must enforce a sanctions list is a compliance decision; as code it does what its documentation says.</li>
+</ul>
+<h3 id="12-codeless-target-treated-as-successful-execution-claimed-medium-low-confirmed">#12 — Codeless target treated as successful execution · claimed Medium → <strong>Low, CONFIRMED</strong></h3>
+<ul>
+<li>Raw <code>call</code> (<code>InboxBase.sol:799</code>) returns success for a codeless address; <code>executed = true</code> unconditionally (<code>InboxMiner.sol:382</code>); error entry only on failure (<code>:384-395</code>); retry and TTL both gated on <code>ERROR_CODE_EXECUTION_FAILED</code> (<code>:303-311</code>). No <code>code.length</code> check on the message path; the oracle path has one (<code>ChainlinkFeedLib.sol:19</code>, <code>:61</code>). Gist <code>A1</code> 2/2 pass. Consequence: fee lost, request unterminalizable, source app waits forever; for the portal only an admin-misconfigured <code>cotiMotherContract</code> (#58) reaches it, recoverable via <code>adminRefundPendingDeposit</code>. One-line fix (<code>if (targetContract.code.length == 0)</code> → record <code>EXECUTION_FAILED</code>) is correct.</li>
+</ul>
+<h3 id="13-fee-quote-unreliable-when-gas-price-moves-claimed-medium-low-confirmed">#13 — Fee quote unreliable when gas price moves · claimed Medium → <strong>Low, CONFIRMED</strong></h3>
+<ul>
+<li>Quote takes an unclamped <code>gasPrice</code> (<code>FeeManagerStubBase.sol:151-157</code>), <code>PodERC20</code> passes <code>tx.gasprice</code> (<code>:849</code>); validation uses <code>_referenceGasPrice</code> = <code>basefee + minPriorityFeeWei</code> floored at 2 gwei, ceiling unset (<code>FeeManager.sol:227-243</code>, <code>:14</code>). Gist <code>C11</code> 4/4 pass. Availability only; user retries. (Their <code>maxGasPriceWei</code> discussion is accurate: <code>ensureDefaults</code> never sets it, no script calls <code>setGasPriceBounds</code>.) The "third manifestation" (quote exceeding <code>maxExecutionGas</code>) turns out to be the default state of the shipped templates — see §6.</li>
+</ul>
+<h3 id="14-cross-chain-conversion-price-is-a-manual-constant-with-no-age-bound-freshness-signals-overstate-claimed-medium-medium-confirmed">#14 — Cross-chain conversion price is a manual constant with no age bound; freshness signals overstate · claimed Medium → <strong>Medium, CONFIRMED</strong></h3>
+<ul>
+<li><code>getPricesUSD</code> returns the cache with no age check (<code>PriceOracle.sol:160-162</code>); <code>refreshCache</code> is public, advances <code>lastFetchTimestamp</code> before pulling (<code>:124-143</code>), retains the old value on a zero pull (<code>:146-157</code>); <code>fetchGateOpen</code> public (<code>:186</code>); <code>PoDPriceOracle.setTokenPriceUSD</code> stamps nothing (<code>:86-95</code>), <code>getLivePrices</code> prefers the manual peg (<code>:62-83</code>). Gist <code>D12</code> 5/5 and <code>D11D2</code> 5/5 pass. This is the same territory as our <code>ORACLE_SECURITY_ANALYSIS.md</code> (F-1, F-2, C-1, C-3 — rated High/Medium there), so Medium is consistent. Their ordering advice on <code>maxStaleness</code> vs feed publication time is correct.</li>
+</ul>
+<h3 id="15-portal-fee-re-derived-at-execution-with-no-tolerance-two-layer-squeeze-wrap-uncapped-claimed-medium-low-confirmed">#15 — Portal fee re-derived at execution with no tolerance; two-layer squeeze; <code>wrap</code> uncapped · claimed Medium → <strong>Low, CONFIRMED</strong></h3>
+<ul>
+<li><code>_validateAndCollectPortalFee</code> (<code>PrivacyPortal.sol:888-897</code>) recomputes the floor and keeps any excess up to <code>maxFee</code>; <code>deposit</code> requires <code>msg.value &gt; portalFee</code> and forwards the rest (<code>:404-408</code>); <code>wrap</code> passes the floor through (<code>:492-500</code>); portal reads <code>getLivePrices</code> (manual peg first) while the Inbox reads the cache (<code>PoDPriceOracle.sol:62-83</code> vs <code>PriceOracle.sol:160</code>). Gist <code>P5</code> 15/15 pass (Inbox floor modelled). Impact is rejection or bounded overpayment; <code>wrap</code> is our #13 (Low, <code>wrapWithMaxFee</code> validated). Their two unsettled questions (are both layers on one oracle; are the native-token addresses equal) are deployment facts, unverifiable here.</li>
+</ul>
+<h3 id="16-remount-rotates-the-minter-the-old-portals-refund-still-needs-claimed-medium-low-confirmed-our-3">#16 — Remount rotates the minter the old portal's refund still needs · claimed Medium → <strong>Low, CONFIRMED (= our #3)</strong></h3>
+<ul>
+<li><code>createPortalWithExistingPToken</code> requires only <code>paused()</code> (<code>PrivacyPortalFactory.sol:653</code>), retires, clones, pauses the clone, then <code>setMinter(portal)</code> (<code>:665-674</code>); <code>adminRefundPendingDeposit</code> → minter-only <code>invalidatePendingRequest</code> reverts <code>OnlyMinter</code>. Gist <code>P17</code> 8/8 pass. Bounded to a ≤48 h freeze with a permissionless refund after expiry, plus the two-step admin recovery (kill, then refund) the finding itself documents. Our validated fix lets the owner/factory invalidate.</li>
+</ul>
+<hr />
+<h2 id="4-low-findings-1732-sub-agent-verification-spot-checked">4. Low findings (17–32) — sub-agent verification, spot-checked</h2>
+<p>Full evidence with line citations: <code>external-findings-verification/agent-low.md</code>.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Finding</th>
+<th>Verdict</th>
+<th>Severity</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>17</td>
+<td>1/1 gas-price skew shipped; safeguards absent</td>
+<td>Partially confirmed</td>
+<td>Low</td>
+<td>Config facts true; the "silent busy return leg" narrative is wrong — reply legs reuse the source-computed <code>callerFee</code> (<code>InboxBase.sol:279</code>), COTI's remote template prices nothing in scope</td>
+</tr>
+<tr>
+<td>18</td>
+<td>pToken adoption doesn't check underlying correspondence</td>
+<td>Confirmed</td>
+<td>Low</td>
+<td>= our #4 residual; example direction in the text is inverted; fix (read old portal's <code>underlyingToken()</code>) sound</td>
+</tr>
+<tr>
+<td>19</td>
+<td>Deposits accepted before COTI registration</td>
+<td>Confirmed</td>
+<td>Low</td>
+<td>= our #5; NatSpec already says "or immediately set"; missed residue: a failed, unretried registration can never be re-issued through the same factory</td>
+</tr>
+<tr>
+<td>20</td>
+<td>Two-way triple not re-validated at ingest</td>
+<td>Confirmed</td>
+<td>Low</td>
+<td>Sub-claim wrong: a raise payload delivered to <code>transferCallback</code> reverts on the 11-word decode; the fail-open case is <code>approveCallback</code></td>
+</tr>
+<tr>
+<td>21</td>
+<td>Delegate-call modules irreplaceable</td>
+<td>Confirmed</td>
+<td><strong class="sev sev-info">Informational</strong></td>
+<td>Documented design (<code>Inbox.sol:15-16</code>); the Inbox <em>address</em> is rotatable everywhere, only <code>cotiChainId</code> is fixed</td>
+</tr>
+<tr>
+<td>22</td>
+<td>Fee floor/cap in wei vs USD fee</td>
+<td>Confirmed</td>
+<td>Low</td>
+<td>Bounds drift with native price; <code>usedDynamicPricing</code> dropped on charge path</td>
+</tr>
+<tr>
+<td>23</td>
+<td>Raw <code>setPTokenMinter</code>/<code>transferPTokenOwnership</code> bypass the remount sequence</td>
+<td>Confirmed</td>
+<td>Low</td>
+<td>Our #4 fix guards <code>setPTokenMinter</code>; <code>transferPTokenOwnership</code> remains raw; gist exercises only the ownership path</td>
+</tr>
+<tr>
+<td>24</td>
+<td>Mother <code>renounceOwnership</code> not blocked</td>
+<td>Confirmed</td>
+<td>Low</td>
+<td>Every sibling overrides it; mother and all oracles do not</td>
+</tr>
+<tr>
+<td>25</td>
+<td>Lost burn ack never resolvable</td>
+<td>Partially confirmed</td>
+<td>Low</td>
+<td><code>killPTokenStaleRequest</code> → <code>Failed</code> → <code>finalizeBatchBurn</code> clears the reservation; only <code>pendingBurnAmount</code> stays inflated</td>
+</tr>
+<tr>
+<td>26</td>
+<td>Config change strands in-flight messages; one fails a batch</td>
+<td>Partially confirmed</td>
+<td>Low</td>
+<td>Batch atomicity true; sub-claim (ii) wrong — retry re-checks no cap; sharper variant: lowering the <em>remote</em> cap below a stored <code>callerFee</code> also blocks the TTL callback</td>
+</tr>
+<tr>
+<td>27</td>
+<td>Non-reproducible build; dependency diverged</td>
+<td>Partially confirmed</td>
+<td>Low</td>
+<td><code>file:</code> dependency and no integrity confirmed; lockfile does record a version (0.0.1); npm-registry claims unverifiable</td>
+</tr>
+<tr>
+<td>28</td>
+<td>Shanghai config not COTI-deployable</td>
+<td>Partially confirmed</td>
+<td>Low</td>
+<td>Config contradiction confirmed (<code>hardhat.config.ts:92-94</code> shanghai vs coti-contracts paris "COTI rejects PUSH0"); node behaviour and byte counts unverifiable</td>
+</tr>
+<tr>
+<td>29</td>
+<td>Skew ratio unbounded</td>
+<td>Confirmed</td>
+<td>Low</td>
+<td>Validation gap only; 65535/1 test is not in the gist</td>
+</tr>
+<tr>
+<td>30</td>
+<td>Fee-admin auth in override; bare <code>InboxBase</code> deployable</td>
+<td>Partially confirmed</td>
+<td><strong class="sev sev-info">Informational</strong></td>
+<td>A bare <code>InboxBase</code> is inert: <code>feeManager == 0</code> → <code>ModuleNotConfigured</code> on every forwarder; "stray value unrecoverable" contradicts the finding's own <code>collectFees</code> observation</td>
+</tr>
+<tr>
+<td>31</td>
+<td>Init preconditions not enforced on-chain</td>
+<td>Confirmed</td>
+<td>Low</td>
+<td>Scripts close both gaps; the proposed constructor-sender check is unsafe under CREATE3 (creator is a proxy) — use <code>msg.sender == CREATEX</code> in <code>init</code></td>
+</tr>
+<tr>
+<td>32</td>
+<td>Confidential input must be signed by the miner (<code>tx.origin</code>)</td>
+<td>Not verifiable</td>
+<td>Low (conditional)</td>
+<td>Code path confirmed (validation runs inside the miner's tx via delegatecall); the precompile's signer binding is not documented in either repo</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-informational-findings-3374-sub-agent-verification-spot-checked">5. Informational findings (33–74) — sub-agent verification, spot-checked</h2>
+<p>Full evidence: <code>external-findings-verification/agent-info1.md</code> (33–53), <code>agent-info2.md</code> (54–74).</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Finding</th>
+<th>Verdict</th>
+<th>Severity</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>33</td>
+<td><code>tokenPriceUpdatedAt</code> written, never read</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Manual peg on <code>PoDPriceOracle</code> also stamps nothing</td>
+</tr>
+<tr>
+<td>34</td>
+<td>In-flight withdrawals ignore later blacklisting, undocumented</td>
+<td>Confirmed</td>
+<td><strong class="sev sev-low">Low</strong> unless policy documented</td>
+<td>= our #2 (Low)</td>
+</tr>
+<tr>
+<td>35</td>
+<td>Transaction graph public</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Indexed on both chains (<code>TransferCompleted</code> on COTI too)</td>
+</tr>
+<tr>
+<td>36</td>
+<td>Retry success uses a different event</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Already stated in NatSpec three times</td>
+</tr>
+<tr>
+<td>37</td>
+<td><code>inboxErrorType()</code> misclassifies success as <code>Exception</code></td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Documented (<code>IInbox.sol:12</code>); their fix (use the leg's own selector) cannot separate respond from raise and conflicts with #50's fix</td>
+</tr>
+<tr>
+<td>38</td>
+<td>Execution failure never notifies the source</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Expiry notification is not automatic either (needs a <code>retryFailedRequest</code> call, <code>errorSelector≠0</code>, <code>callerFee≠0</code>)</td>
+</tr>
+<tr>
+<td>39</td>
+<td>Documented pre-funding flow doesn't exist; balance unrecoverable</td>
+<td>Confirmed</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>NatSpec invites operators to send native that no path can ever spend or sweep</td>
+</tr>
+<tr>
+<td>40</td>
+<td>Duplicate transfer selectors; one uncalled</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td><code>transferOwner</code> is labelled legacy in the interface</td>
+</tr>
+<tr>
+<td>41</td>
+<td>Burn nonce written after <code>respond</code></td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Four sites, not two; no external call leaves the Inbox</td>
+</tr>
+<tr>
+<td>42</td>
+<td>Encrypted zero never read</td>
+<td>Partially confirmed</td>
+<td>Informational</td>
+<td>It <em>is</em> read: emitted in <code>Transfer</code> and hashed into the ERC-7984 handle</td>
+</tr>
+<tr>
+<td>43</td>
+<td><code>callerContract == originalSender</code> everywhere</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Extra slot per request</td>
+</tr>
+<tr>
+<td>44</td>
+<td>Batch copied to memory before validation</td>
+<td>Partially confirmed</td>
+<td>Informational</td>
+<td><code>:61</code> is an alias, not a copy; interface lives in Scope B</td>
+</tr>
+<tr>
+<td>45</td>
+<td><code>uint16</code> event counts truncate</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Bounded by <code>PROTOCOL_MAX_METHOD_CALL_BYTES</code>; widening changes topic0</td>
+</tr>
+<tr>
+<td>46</td>
+<td>Local/remote naming inversion</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Already commented at <code>InboxMiner.sol:46-47</code></td>
+</tr>
+<tr>
+<td>47</td>
+<td>Dead code (7 items)</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Item (b) <code>_staticModule</code> is documented, not useless; (g) duplicate check is safe defence in depth</td>
+</tr>
+<tr>
+<td>48</td>
+<td>Unsafe <code>_encodeMethodCall</code> kept</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Uncalled</td>
+</tr>
+<tr>
+<td>49</td>
+<td>Storage pointer taken before slot written</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Their fix as phrased does not compile (memory struct → storage pointer)</td>
+</tr>
+<tr>
+<td>50</td>
+<td>Reply leg carries the other contract's error selector</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Fix conflicts with #37's fix if both applied</td>
+</tr>
+<tr>
+<td>51</td>
+<td>Gas budget named as fee</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Interface NatSpec already says "not wei"</td>
+</tr>
+<tr>
+<td>52</td>
+<td>Returndata bounded only for the untrusted target</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>All unbounded callees are owner-configured</td>
+</tr>
+<tr>
+<td>53</td>
+<td>"Never reverts" feed-lib doc</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Literally true; gas note valid</td>
+</tr>
+<tr>
+<td>54</td>
+<td>Escrow <code>Failed</code> unreachable</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Keep enum ordinal</td>
+</tr>
+<tr>
+<td>55</td>
+<td>Stray native unattributable</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>2300-gas caveat on the proposed <code>receive</code> guard</td>
+</tr>
+<tr>
+<td>56</td>
+<td>"bps" is parts-per-million</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Documented in the interface, not on the setters</td>
+</tr>
+<tr>
+<td>57</td>
+<td>Paid round trips that cannot succeed</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td></td>
+</tr>
+<tr>
+<td>58</td>
+<td><code>configureRouting</code> lacks code check</td>
+<td>Partially confirmed</td>
+<td>Informational</td>
+<td>Impact wrong: high-level calls to a codeless inbox revert (fail closed); constructor and <code>configurePToken</code> lack the check too</td>
+</tr>
+<tr>
+<td>59</td>
+<td>Capped returndata discards full length</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Their critique of our earlier keccak suggestion is right</td>
+</tr>
+<tr>
+<td>60</td>
+<td>Context slot protection</td>
+<td>Partially confirmed</td>
+<td>Informational</td>
+<td><code>_reply</code> does assert context and caller; only a reentrancy guard is absent; EIP-1153 not deployable pre-Cancun</td>
+</tr>
+<tr>
+<td>61</td>
+<td>Invariants by convention (struct layouts, encodings, 1e18)</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td></td>
+</tr>
+<tr>
+<td>62</td>
+<td>Clearing a manual price offlines the lane</td>
+<td>Partially confirmed</td>
+<td>Informational</td>
+<td>"No way to force recovery" is wrong: <code>setLocal/RemoteTokenPriceUSD</code> writes the cache in one call (= our oracle C-2)</td>
+</tr>
+<tr>
+<td>63</td>
+<td>Reject path skips ingest caps</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td></td>
+</tr>
+<tr>
+<td>64</td>
+<td><code>_tryDecodeAbiBytes</code> add wraps</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Reproduced with the harness written here; needs a hostile write-once module</td>
+</tr>
+<tr>
+<td>65</td>
+<td>63/64 gas shortfall; event reports budget</td>
+<td>Partially confirmed</td>
+<td>Informational</td>
+<td>Mechanism true; magnitudes depend on off-repo miner tooling; "a sixty-fourth of the budget" is loose</td>
+</tr>
+<tr>
+<td>66</td>
+<td>Collateral measured in, trusted out</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Consequences already scored (our #1, #10)</td>
+</tr>
+<tr>
+<td>67</td>
+<td><code>maxReplyMethodCallBytes</code> unbounded</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Bounded downstream</td>
+</tr>
+<tr>
+<td>68</td>
+<td>Factory quote surface ignores overrides</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td></td>
+</tr>
+<tr>
+<td>69</td>
+<td>Per-chain lanes, global fee config</td>
+<td>Confirmed</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>Multi-lane COTI Inbox is documented in-repo (Sepolia + Fuji); one remote leg/skew misprices the second lane</td>
+</tr>
+<tr>
+<td>70</td>
+<td>Remount silently drops portal config</td>
+<td>Confirmed</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>Limits reset to unbounded, blacklist emptied, overrides dropped; nothing enumerates what to restore</td>
+</tr>
+<tr>
+<td>71</td>
+<td>Native deposit refunded wrapped</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td></td>
+</tr>
+<tr>
+<td>72</td>
+<td>pTokens sent to the portal are stranded</td>
+<td>Confirmed</td>
+<td><strong class="sev sev-low">Low</strong></td>
+<td>Irreversible, no reconciliation, inflates nothing but is unburnable</td>
+</tr>
+<tr>
+<td>73</td>
+<td><code>transferAndCall</code> makes <code>onlyPToken</code> non-boundary</td>
+<td>Confirmed</td>
+<td>Informational</td>
+<td>Precondition weaker than stated (zero-balance encrypted transfer still fires the hook); harmless today</td>
+</tr>
+<tr>
+<td>74</td>
+<td>Stale mappings after <code>transferPTokenOwnership</code></td>
+<td>Partially confirmed</td>
+<td>Informational</td>
+<td>Mappings are not inert: they block <code>createPortal</code> for that underlying; deleting them is not obviously safe</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="6-new-finding-shipped-fee-templates-leave-no-admissible-target-payment-verifier-found">6. New finding — shipped fee templates leave no admissible target payment (verifier-found)</h2>
+<p><strong>Where.</strong> <code>scripts/deploy-utils.ts:365-403</code> (<code>FEE_CONFIG_COTI_SIDE</code>: <code>constantFee = maxExecutionGas = PROTOCOL_MAX_EXECUTION_GAS = 25_000_000</code>; used as the <em>remote</em> template on every source chain via <code>testnetMinFeeConfigsForChain</code>, <code>:447-460</code>, applied by <code>applyTestnetFeeConfigs</code>, <code>:684-701</code>); <code>FeeManager.sol:183-190</code> (<code>TargetFeeTooLow</code> when units <code>&lt; expectedMinFee = constantFee</code>); <code>InboxBase.sol:497-499</code> (<code>FeeGasTooHigh</code> when units <code>&gt; remoteMax.maxExecutionGas</code>); <code>FeeManagerStubBase.sol:151-186</code> (quote adds <code>remoteMethodExecutionGas</code> on top of the constant); <code>PodERC20.sol:39-45</code>, <code>:844-850</code> (<code>estimateFee</code> adds 300,000).</p>
+<p><strong>Mechanism.</strong> The target leg's admissible gas is the closed interval <code>[constantFee, maxExecutionGas]</code> = <code>{25,000,000}</code> exactly. The units a payment buys are <code>floor((wei / gasPrice) × localPrice / remotePrice)</code> (<code>FeeManager.sol:181</code>). With price ratio <code>r</code>, only multiples of <code>r</code> (rounded down) are reachable; 25,000,000 is reachable only if some integer <code>k</code> gives <code>floor(k·r) = 25,000,000</code>.</p>
+<ul>
+<li>ETH $3000 / COTI $0.05 (<code>r = 60,000</code>): unreachable — every <code>k</code> gives <code>TargetFeeTooLow</code> or <code>FeeGasTooHigh</code>.</li>
+<li>The script's own testnet spot prices (<code>TESTNET_ETH_USD = 2103.41</code>, <code>TESTNET_COTI_USD = 0.01272522</code>, <code>r ≈ 165,296.9</code>): <code>k = 151 → 24,959,482</code> (too low), <code>k = 152 → 25,124,777</code> (too high). Unreachable for two-way sends <strong>and</strong> for the one-way <code>sendOneWayMessage</code> that <code>createPortal</code> uses to register a token on COTI.</li>
+<li>1:1 prices (what the repo's own Hardhat tests use): reachable only by hand-paying exactly 25,000,000 × gasPrice; <code>PodERC20.estimateFee()</code> (constant + 300,000) still reverts <code>FeeGasTooHigh(25_300_000, 25_000_000)</code>.</li>
+</ul>
+<p><strong>Evidence.</strong> <code>test/foundry-external/verifier/ShippedConfigQuote.t.sol</code>, run on the real <code>Inbox</code> + <code>FeeManager</code> + <code>PriceOracle</code> + <code>PodErc20Mintable</code> (log: <code>external-findings-verification/forge-verifier-shipped-config-results.log</code>):</p>
+<div class="codehilite"><pre><span></span><code>[PASS] test_shipped_estimateFee_mint_reverts_FeeGasTooHigh          FeeGasTooHigh(25_320_000, 25_000_000) at ETH/COTI 3000/0.05
+[PASS] test_shipped_constantOnlyTargetLeg_accepted_only_with_1to1_prices
+[PASS] test_shipped_realisticPrices_noAdmissibleTargetPayment       k = 400..430 all revert TargetFeeTooLow | FeeGasTooHigh
+[PASS] test_shipped_testnetPrices_noAdmissiblePayment_twoWay_and_oneWay   k = 140..165 all revert; units at k=151/152 = 24,959,482 / 25,124,777
+[PASS] test_callbackLeg_encryptedTransfer_reverts_CallbackFeeTooLow  (finding #7 made concrete)
+</code></pre></div>
+
+<p><strong>Why the repo's tests do not see it.</strong> <code>FeeTemplateConstantFee.ts</code> only asserts the template invariants (<code>constantFee == maxExecutionGas</code>); every Inbox test that sends uses 1:1 oracle prices (<code>10n ** 18n</code> both legs) and hand-computed payments.</p>
+<p><strong>Severity.</strong> High as an availability defect of the shipped configuration: no user or portal on a source chain can send anything to COTI, and <code>estimateFee()</code> is unusable even where a payment exists. It is configuration, not contract logic, and it is correctable by the owner with one <code>updateMinFeeConfigs</code> call. <strong>Caveat:</strong> whether the live Sepolia/Fuji Inboxes carry these exact values is not verifiable from the repositories; <code>remoteMinFeeConfig()</code> on the deployed Inbox answers it (constant 25,000,000 with cap 25,000,000 confirms).</p>
+<p><strong>Fix.</strong> Set <code>constantFee</code> strictly below <code>maxExecutionGas</code> with a margin at least <code>remoteMethodExecutionGas</code> (300,000) plus the largest rounding step <code>localPrice/remotePrice</code> you expect (≈170,000 units at testnet prices, more if ETH/COTI diverges); or make the validator accept <code>min(units, maxExecutionGas)</code>; and add a test that quotes through <code>PodERC20.estimateFee()</code> and then sends, with non-trivial prices.</p>
+<hr />
+<h2 id="7-corrections-to-the-pasted-text-facts-that-are-wrong-or-overstated">7. Corrections to the pasted text (facts that are wrong or overstated)</h2>
+<ol>
+<li><strong>#3</strong> "no event" — <code>RequestStatusUpdated</code> is emitted; "cannot be checked on COTI" — the COTI Inbox's <code>incomingRequests</code>/<code>errors</code> are public.</li>
+<li><strong>#17</strong> reply legs are not re-priced by COTI's remote template; they reuse the source-computed <code>callerFee</code>.</li>
+<li><strong>#20</strong> a raise payload delivered to <code>transferCallback</code> reverts (11-word decode); the fail-open selector-equality case is <code>approveCallback</code>.</li>
+<li><strong>#25</strong> a killed burn request resolves through <code>finalizeBatchBurn</code>'s <code>Failed</code> branch; only <code>pendingBurnAmount</code> stays inflated.</li>
+<li><strong>#26 (ii)</strong> retries re-check no admission cap; the real variant is the <em>remote</em> cap blocking reply and TTL legs.</li>
+<li><strong>#27</strong> the lockfile records version 0.0.1 for the linked dependency (no commit, no integrity).</li>
+<li><strong>#30 (b)</strong> a bare <code>InboxBase</code> cannot be used: every fee forwarder reverts <code>ModuleNotConfigured</code>.</li>
+<li><strong>#31</strong> a constructor-<code>msg.sender</code> check is unsafe under CREATE3; gate <code>init</code> on the CreateX address instead.</li>
+<li><strong>#42</strong> the encrypted zero is emitted in <code>Transfer</code> and folded into the ERC-7984 handle.</li>
+<li><strong>#44</strong> <code>MinedRequest memory minedRequest = mined[i]</code> aliases; it does not copy.</li>
+<li><strong>#49</strong> the proposed fix (assign a memory struct to a storage pointer) is not valid Solidity.</li>
+<li><strong>#58</strong> a codeless inbox makes <code>createPortal</code>/pToken sends revert loudly (high-level calls), not "appear dispatched".</li>
+<li><strong>#62</strong> the price admin restores a cleared lane in one call via <code>setLocal/RemoteTokenPriceUSD</code>.</li>
+<li><strong>#73</strong> no stranded pTokens are needed to fire the hook (zero-balance encrypted transfer still reports <code>Success</code>).</li>
+<li><strong>#74</strong> the stale mappings are not inert; they block <code>createPortal</code> for that underlying.</li>
+<li><strong>Gist README</strong> "runs under the repository's existing Foundry configuration" — neither repo has any Foundry configuration or <code>test/foundry</code> tree at the audited commits; <code>PortalAccounting.invariant.t.sol</code> and <code>harness/B11Harness.sol</code> are not in either repo or the gist.</li>
+<li><strong>#37 vs #50</strong> the two recommended fixes conflict: applying both makes every reply leg <code>NotErrorContext</code> and breaks <code>PodERC20</code>'s error handlers.</li>
+</ol>
+<hr />
+<h2 id="8-reproduce">8. Reproduce</h2>
+<div class="codehilite"><pre><span></span><code># tools (github.com is reachable; binaries.soliditylang.org is not)
+curl -L https://github.com/foundry-rs/foundry/releases/download/stable/foundry_stable_linux_amd64.tar.gz | tar xz   # forge 1.5.1
+git clone https://gist.github.com/a7f659352f240ca9e67f49ed3c8c3220.git gist &amp;&amp; git -C gist checkout 7aa7524c
+git clone --depth 1 https://github.com/foundry-rs/forge-std.git
+# workspace A: cp -r coti-pod-inbox-contracts/contracts ffA/contracts; gist Scope-A *.t.sol -&gt; ffA/test/foundry/;
+#   test/foundry-external/harness/B11Harness.sol -&gt; ffA/test/foundry/harness/; verifier/ShippedConfigQuote.t.sol -&gt; ffA/test/foundry/verifier/
+# workspace B: cp -r coti-contracts/contracts ffB/contracts (rm -r ffB/contracts/disperse); gist Scope-B *.t.sol + mocks/ -&gt; ffB/test/foundry/;
+#   cp P14F3_PortalAccountingRescue.invariant.t.sol ffB/test/foundry/PortalAccounting.invariant.t.sol; verifier/MsgSizeProbe.t.sol -&gt; ffB/test/foundry/verifier/
+# configs: test/foundry-external/foundry.scopeA.toml / foundry.scopeB.toml (replace &lt;SCRATCH&gt; and the solc path)
+cd ffA &amp;&amp; forge test -vv ; cd ../ffB &amp;&amp; forge test -vv --no-match-path 'contracts/mocks/**'
+</code></pre></div>
+
+<p>Scope split by import: files importing <code>../../contracts/Inbox.sol</code>, <code>fee/*</code>, <code>MpcAbiReEncode.sol</code>, <code>MinerBase.sol</code>, <code>B11_*</code>, <code>F10_*</code>, <code>P6_OracleFailClosed_ScopeA</code> → A; files importing <code>../../contracts/pod/*</code> → B.</p>
+</body></html>
