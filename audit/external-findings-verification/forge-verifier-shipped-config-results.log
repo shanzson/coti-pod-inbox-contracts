@@ -1,0 +1,30 @@
+Ran 5 tests for test/foundry/verifier/ShippedConfigQuote.t.sol:ShippedConfigQuote
+[PASS] test_callbackLeg_encryptedTransfer_reverts_CallbackFeeTooLow() (gas: 14199824)
+[PASS] test_shipped_constantOnlyTargetLeg_accepted_only_with_1to1_prices() (gas: 13789013)
+[PASS] test_shipped_estimateFee_mint_reverts_FeeGasTooHigh() (gas: 13211866)
+Logs:
+  quote total/target/cb wei 2744044000000000 844000000000 2743200000000000
+[PASS] test_shipped_realisticPrices_noAdmissibleTargetPayment() (gas: 14801932)
+[PASS] test_shipped_testnetPrices_noAdmissiblePayment_twoWay_and_oneWay() (gas: 15024874)
+Logs:
+  units at k=151 / k=152 24959482 25124777
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 8.59ms (15.87ms CPU time)
+Ran 1 test suite in 9.70ms (8.59ms CPU time): 5 tests passed, 0 failed, 0 skipped (5 total tests)
+Ran 1 test for test/foundry/verifier/MsgSizeProbe.t.sol:MsgSizeProbe
+[PASS] test_sizes() (gas: 1282774)
+Logs:
+  mint(public)          448
+  transfer(public)      544
+  approve(public)       544
+  burn(public)          448
+  transfer(itUint256)   768
+  transferFrom(it)      864
+  syncBalances(10)      704
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 3.01ms (1.95ms CPU time)
+Ran 1 test suite in 9.10ms (3.01ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)
+[PASS] test_staleCache_feeSizedFromFreshPrice_rejectsBothWays() (gas: 152882)
+[PASS] test_staleCache_onChainQuote_unitsUnchanged() (gas: 417055)
+  quoted target wei / units bought (100-day-stale cache) 678000000000 20340000
+[PASS] test_staleCache_weiScalesWithRatio_unitsDoNot() (gas: 71951)
+  wei for 20.3M units at COTI $0.05 / $0.20 / $0.0125: 678000000000 2708000000000 170000000000
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 2.63ms (1.40ms CPU time)
